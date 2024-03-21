@@ -73,7 +73,7 @@ function load_json()
 end
 
 function init()
-  if not installer:ready() then
+  if installer:ready() then
     screen.aa(1)
     osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/init",{data_path})
     redrawtimer = metro.init(function() 
