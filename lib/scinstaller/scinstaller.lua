@@ -126,7 +126,7 @@ function Installer:install()
   os.execute("cd /tmp/norns-installer/ignore/ && unzip -o -q bundle.zip")
   -- find relevant files and copy them
   os.execute("mkdir -p /home/we/.local/share/SuperCollider/Extensions/supercollider-plugins")
-  if install_all == "true" then
+  if self.install_all == "true" then
     print("install all!!!!")
   else
     for _,file in ipairs(self:list_files("/tmp/norns-installer/ignore/")) do
