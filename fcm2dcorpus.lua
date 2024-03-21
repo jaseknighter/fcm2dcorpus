@@ -5,7 +5,8 @@
 -- 2d corpus explorer for norns
 -- v0.1
 --
--- k2/k3 navigates
+-- k2/k3 navigates the loaded sounds
+-- e2 selects a new folder of sounds
 
 -- adapted from: https://learn.flucoma.org/learn/2d-corpus-explorer/
 -- FluCoMa installer code from @infinitedigits (schoolz) graintopia
@@ -71,17 +72,32 @@ function load_json()
 end
 
 function init()
-  screen.aa(1)
-    print("rd")
-  osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/init",{data_path})
-  redrawtimer = metro.init(function() 
-    redraw()
-  end, 1/15, -1)
-  redrawtimer:start()
-  screen_dirty = true
+  if not installer:ready() then
+    screen.aa(1)
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/init",{data_path})
+    redrawtimer = metro.init(function() 
+      redraw()
+    end, 1/15, -1)
+    redrawtimer:start()
+    screen_dirty = true
+  end
+end
+
+function key(k,z)
+  if not installer:ready() then
+    installer:key(k,z)
+    do return end
+  end
+
+  if k==2 then
+
+  end
 end
 
 function enc(n,d)
+  if not installer:ready() then
+    do return end
+  end
   if points_data_generated == true and points_data then
 
     if n==1 then
@@ -102,6 +118,11 @@ end
 
 function redraw()
   if screen_dirty == true then
+    if not installer:ready() then
+      installer:redraw()
+      do return end
+    end
+  
     screen.clear()
 
     --set cursor
