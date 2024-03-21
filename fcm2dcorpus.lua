@@ -151,7 +151,7 @@ function redraw()
       screen.stroke()
 
     else
-      print("loading")
+      print("loading audio...")
       screen.move(10,40)
       screen.text("loading ")
 
