@@ -128,6 +128,8 @@ function Installer:install()
   os.execute("mkdir -p /home/we/.local/share/SuperCollider/Extensions/supercollider-plugins")
   if self.install_all == "true" then
     print("install all!!!!")
+    print("copying folder "..self.folder.." to Extensions...")
+    os.execute(string.format("cp -r self.folder /home/we/.local/share/SuperCollider/Extensions/supercollider-plugins/",self.folder))
   else
     for _,file in ipairs(self:list_files("/tmp/norns-installer/ignore/")) do
       _,filename,_=self:split_path(file)
