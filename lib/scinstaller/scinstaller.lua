@@ -126,14 +126,18 @@ function Installer:install()
   os.execute("cd /tmp/norns-installer/ignore/ && unzip -o -q bundle.zip")
   -- find relevant files and copy them
   os.execute("mkdir -p /home/we/.local/share/SuperCollider/Extensions/supercollider-plugins")
-  for _,file in ipairs(self:list_files("/tmp/norns-installer/ignore/")) do
-    _,filename,_=self:split_path(file)
-    for _,file_needed in ipairs(self.missing_requirements) do
-      if string.find(filename,file_needed) then
-        -- copy it
-        print("copying "..filename.." to Extensions...")
-        self.message_progress="copying "..filename.."..."
-        os.execute(string.format("cp %s /home/we/.local/share/SuperCollider/Extensions/supercollider-plugins/",file))
+  if install_all == "true" then
+    print("install all!!!!")
+  else
+    for _,file in ipairs(self:list_files("/tmp/norns-installer/ignore/")) do
+      _,filename,_=self:split_path(file)
+      for _,file_needed in ipairs(self.missing_requirements) do
+        if string.find(filename,file_needed) then
+          -- copy it
+          print("copying "..filename.." to Extensions...")
+          self.message_progress="copying "..filename.."..."
+          os.execute(string.format("cp %s /home/we/.local/share/SuperCollider/Extensions/supercollider-plugins/",file))
+        end
       end
     end
   end

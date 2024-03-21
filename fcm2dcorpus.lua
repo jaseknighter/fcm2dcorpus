@@ -7,15 +7,14 @@
 --
 --    ▼ instructions below ▼
 -- k2/k3 navigates the sounds
--- e2 select a new folder of sounds
+-- e2 select new sounds
 
 -- adapted from: https://learn.flucoma.org/learn/2d-corpus-explorer/
 -- FluCoMa installer code from @infinitedigits (schoolz) graintopia
 
 -- check for requirements
 installer_=include("lib/scinstaller/scinstaller")
-installer=installer_:new{zip="https://github.com/jaseknighter/flucoma-sc/releases/download/1.0.6-RaspberryPi/FluCoMa-SC-RaspberryPi.zip"}
--- installer=installer_:new{requirements={"FluidCorpusManipulation"},zip="https://github.com/jaseknighter/flucoma-sc/releases/download/1.0.6-RaspberryPi/FluCoMa-SC-RaspberryPi.zip"}
+installer=installer_:new{install_all="true",requirements={"FluidCorpusManipulation"},zip="https://github.com/jaseknighter/flucoma-sc/releases/download/1.0.6-RaspberryPi/FluCoMa-SC-RaspberryPi.zip"}
 engine.name=installer:ready() and 'FCM2dCorpus' or nil
 
 CLOCK_RATE=15
