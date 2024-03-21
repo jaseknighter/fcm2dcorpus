@@ -14,7 +14,7 @@
 
 -- check for requirements
 installer_=include("lib/scinstaller/scinstaller")
-installer=installer_:new{install_all="true",requirements={"FluidCorpusManipulation"},zip="https://github.com/jaseknighter/flucoma-sc/releases/download/1.0.6-RaspberryPi/FluCoMa-SC-RaspberryPi.zip"}
+installer=installer_:new{install_all="true",folder="FluidCorpusManipulation",requirements={"FluidCorpusManipulation"},zip="https://github.com/jaseknighter/flucoma-sc/releases/download/1.0.6-RaspberryPi/FluCoMa-SC-RaspberryPi.zip"}
 engine.name=installer:ready() and 'FCM2dCorpus' or nil
 
 CLOCK_RATE=15
