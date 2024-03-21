@@ -74,14 +74,14 @@ end
 
 function init()
   if installer:ready() then
-    screen.aa(1)
     osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/init",{data_path})
-    redrawtimer = metro.init(function() 
-      redraw()
-    end, 1/15, -1)
-    redrawtimer:start()
-    screen_dirty = true
   end
+  screen.aa(1)
+  redrawtimer = metro.init(function() 
+    redraw()
+  end, 1/15, -1)
+  redrawtimer:start()
+  screen_dirty = true
 end
 
 function key(k,z)
