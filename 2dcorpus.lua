@@ -1,7 +1,26 @@
-json = require "fcm_2dcorpus/lib/json/json"
+-- flucoma 2d corpus explorer
+--
+-- llllllll.co/t/fcm2dcorpus
+--
+-- 2d corpus explorer for norns
+-- v0.1
+--
+-- k2/k3 navigates
 
--- engine.name=installer:ready() and 'Graintopia' or nil
-engine.name='FCM2dCorpus'
+-- adapted from: https://learn.flucoma.org/learn/2d-corpus-explorer/
+-- FluCoMa installer code from @infinitedigits (schoolz) graintopia
+
+-- check for requirements
+installer_=include("lib/scinstaller/scinstaller")
+installer=installer_:new{requirements={"FluCoMa"},zip="https://github.com/jaseknighter/flucoma-sc/releases/download/1.0.6-RaspberryPi/FluCoMa-SC-RaspberryPi.zip"}
+engine.name=installer:ready() and 'FCM2dCorpus' or nil
+
+CLOCK_RATE=15
+if not string.find(package.cpath,"/home/we/dust/code/graintopia/lib/") then
+  package.cpath=package.cpath..";/home/we/dust/code/graintopia/lib/?.so"
+end
+
+json = require "fcm2dcorpus/lib/json/json"
 
 local points_data_generated=false
 local points_data=nil
@@ -17,8 +36,6 @@ local script_osc_event = osc.event
 
 function osc.event(path,args,from)
   if script_osc_event then script_osc_event(path,args,from) end
-  
-  -- script_osc_event(path,args,from)
   
   if path == "/lua_fcm2dcorpus/sc_inited" then
     print("fcm 2d corpus sc inited message received")
@@ -38,9 +55,7 @@ function osc.event(path,args,from)
     highlight_y = points_data[slice_id][2]
     highlight_x = math.ceil(highlight_x*132)
     highlight_y = math.ceil(highlight_y*64)
-    print(highlight_x,highlight_y)
-    
-    -- print(slice_id,highlight_x,highlight_y)
+    -- print(highlight_x,highlight_y)
   end
 end
 
@@ -55,12 +70,6 @@ function load_json()
   screen_dirty = true
 end
 
--- FluCoMa Example: 2d corpus explorer
---
--- E1 ????
--- E2 x
--- E3 y
-
 function init()
   screen.aa(1)
     print("rd")
@@ -69,7 +78,6 @@ function init()
     redraw()
   end, 1/15, -1)
   redrawtimer:start()
-  print(">>>>>>>>>")
   screen_dirty = true
 end
 
@@ -95,6 +103,7 @@ end
 function redraw()
   if screen_dirty == true then
     screen.clear()
+
     --set cursor
     screen.move(cursor_x+4,cursor_y)
     screen.circle(cursor_x,cursor_y,5)
@@ -127,31 +136,6 @@ function redraw()
     end
     screen.peek(0, 0, 128, 64)
     screen.update()
-    -- screen.move(10,30)
-    -- screen.text("rate: ")
-    -- screen.move(118,30)
-    -- screen.text_right(string.format("%.2f",rate))
-    -- screen.move(10,40)
-    -- screen.text("loop_start: ")
-    -- screen.move(118,40)
-    -- screen.text_right(string.format("%.2f",loop_start))
-    -- screen.move(10,50)
-    -- screen.text("loop_end: ")
-    -- screen.move(118,50)
-    -- screen.text_right(string.format("%.2f",loop_end))
     screen_dirty = false
   end
 end
-
-
--- function print_info(file)
---   if util.file_exists(file) == true then
---     local ch, samples, samplerate = audio.file_info(file)
---     local duration = samples/samplerate
---     print("loading file: "..file)
---     print("  channels:\t"..ch)
---     print("  samples:\t"..samples)
---     print("  sample rate:\t"..samplerate.."hz")
---     print("  duration:\t"..duration.." sec")
---   else print "read_wav(): file not found" end
--- end
