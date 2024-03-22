@@ -153,7 +153,7 @@ function redraw()
     else
       print("loading audio...")
       screen.move(10,40)
-      screen.text("loading ")
+      screen.text("loading audio...")
 
     end
     screen.peek(0, 0, 128, 64)
