@@ -35,7 +35,7 @@ json = require "fcm2dcorpus/lib/json/json"
 --  points data generated
 --  show composition
 
-local mode = "start"
+mode = "start"
 -- local composition_loaded = false
 -- local analysis_in_progress = false
 -- local points_data_generated=false
@@ -46,8 +46,10 @@ local menu_active = false
 local points_data=nil
 local cursor_x = 64
 local cursor_y = 32
-local highlight_x = nil
-local highlight_y = nil
+local current_x = nil
+local current_y = nil
+local previous_x = nil
+local previous_y = nil
 
 local scale = 30
 local composition_top = 16
@@ -57,12 +59,13 @@ local composition_right = 125
 
 local slices_analyzed
 local total_slices
+local transporting_audio = false
 
 local audio_path = nil
 local composition_length = nil
 local analysis_start = nil
 local analysis_end = nil
-waveform_samples = nil
+local waveform_samples = nil
 local max_analysis_length = 60 * 3
 
 --------------------------
@@ -103,13 +106,17 @@ function osc.event(path,args,from)
     print("dump points")
     tab.print(args)
   elseif path == "/lua_fcm2dcorpus/slice_played" then
+    local current_slice_id = tostring(args[1])
+    local previous_slice_id = tostring(args[2])
     -- tab.print(args)
-    local slice_id = tostring(args[1])
-    highlight_x = points_data[slice_id][1]
-    highlight_y = points_data[slice_id][2]
-    highlight_x = composition_left + math.ceil(highlight_x*(132-composition_left))
-    highlight_y = composition_top + math.ceil(highlight_y*(64-composition_top))
-    -- print(highlight_x,highlight_y)
+    current_x = points_data[current_slice_id][1]
+    current_y = points_data[current_slice_id][2]
+    current_x = composition_left + math.ceil(current_x*(132-composition_left))
+    current_y = composition_top + math.ceil(current_y*(64-composition_top))
+    previous_x = points_data[previous_slice_id][1]
+    previous_y = points_data[previous_slice_id][2]
+    previous_x = composition_left + math.ceil(previous_x*(132-composition_left))
+    previous_y = composition_top + math.ceil(previous_y*(64-composition_top))
   end
 end
 
@@ -131,8 +138,10 @@ function set_audio_path(path)
     points_data=nil
     cursor_x = 64
     cursor_y = 32
-    highlight_x = nil
-    highlight_y = nil
+    current_x = nil
+    current_y = nil
+    previous_x = nil
+    previous_y = nil
     audio_path = path
     path_type = string.find(audio_path, '/', -1) == #audio_path and "folder" or "file"
     print("path_type",path_type)
@@ -160,12 +169,12 @@ function init()
   params:add_control("cursor_x", "cursor x",controlspec.new(0,1,'lin',0.01,0.5,'',0.01))
   params:set_action("cursor_x", function(x) 
     cursor_x = util.clamp(x*127,composition_left,127)
-    play_slice()
+    if alt_key == false then play_slice() end
   end)
   params:add_control("cursor_y", "cursor y",controlspec.new(0,1,'lin',0.01,0.5,'',0.01))
   params:set_action("cursor_y", function(x) 
     cursor_y = util.clamp(x*64,composition_top,64)
-    play_slice()
+    if alt_key == false then play_slice() end
   end)
   params:add_trigger("select_folder_file", "select folder/file" )
   params:set_action("select_folder_file", function(x) fileselect.enter(_path.audio, set_audio_path) end)
@@ -196,6 +205,7 @@ function key(k,z)
     installer:key(k,z)
     do return end
   end
+
   if k==1 then
     if z==1 then
       alt_key=true
@@ -203,15 +213,23 @@ function key(k,z)
       alt_key=false
     end
   end
-  if k==2 then
+  if k==2 and z==0 then
     -- fileselect.enter('/home/we/dust/audio', set_audio_path)   
-    params:set("select_folder_file",1)
-  elseif k==3 and z==1 then
+    if alt_key == false then
+      params:set("select_folder_file",1)
+    elseif mode == "points generated" and current_x then
+      local x = math.ceil(util.linlin(composition_left,127,1,127,cursor_x))
+      local y = math.ceil(util.linlin(composition_top,64,1,64,cursor_y))    
+      transporting_audio = true
+      osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/transport_slice",{x/127,y/64})
+    end
+  elseif k==3 and z==0 then
     if alt_key == true then
       mode = "recording"
       screen_dirty = true
       print("record live")
       local duration = 20
+      print("start record live")
       osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/record_live",{duration})
     elseif mode == "audio composed" then
       mode = "analysing"
@@ -223,9 +241,9 @@ function key(k,z)
       local path = audio_path .. "/" .. tostring(file_num).."_src.wav"
       print("write src")
       osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/write_src",{path})
-      local path = audio_path .. "/" .. tostring(file_num).."_normed.wav"
-      print("write normed")
-      osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/write_normed",{path})
+      -- local path = audio_path .. "/" .. tostring(file_num).."_normed.wav"
+      -- print("write normed")
+      -- osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/write_normed",{path})
     end
   end
 end
@@ -240,16 +258,27 @@ function enc(n,d)
 
     elseif n==2 then
       params:set("cursor_x",params:get("cursor_x")+(d/127))
+      if alt_key == true and transporting_audio == true then
+        local x = math.ceil(util.linlin(composition_left,127,0,127,cursor_x))
+        local y = math.ceil(util.linlin(composition_top,64,0,64,cursor_y))      
+        print(x,y)
+        osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/transport_slice_x_y",{x/127,y/64})
+      end
       
     elseif n==3 then
       params:set("cursor_y",params:get("cursor_y")+(d/64))
+      if alt_key == true and transporting_audio == true then
+        local x = math.ceil(util.linlin(composition_left,127,0,127,cursor_x))
+        local y = math.ceil(util.linlin(composition_top,64,0,64,cursor_y))      
+        osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/transport_slice_x_y",{x/127,y/64})
+      end
     end
   end
   screen_dirty = true
 end
 
 function play_slice()
-  local x = math.ceil(util.linlin(composition_left,128,1,128,cursor_x))
+  local x = math.ceil(util.linlin(composition_left,127,1,127,cursor_x))
   local y = math.ceil(util.linlin(composition_top,64,1,64,cursor_y))
   osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/play_slice",{x/127,y/64})
 end
@@ -284,7 +313,7 @@ function init_waveform(dur)
   composition_length = dur
   analysis_start = 0
   analysis_end = math.min(max_analysis_length,composition_length)
-  softcut.render_buffer(1, 1, composition_length, 128)
+  softcut.render_buffer(1, 1, composition_length, 127)
   print("analysis_end",analysis_end)
   softcut.loop_start(1, 0)
   softcut.loop_end(1, analysis_end)
@@ -304,10 +333,10 @@ function display_waveform()
   print("#waveform_samples",#waveform_samples)
   
   screen.level(15)
-  screen.move(util.linlin(0,128,composition_left,composition_right,analysis_start), composition_top)
+  screen.move(util.linlin(0,127,composition_left,composition_right,analysis_start), composition_top)
   screen.line_rel(0, composition_bottom-composition_top)
   screen.stroke()
-  screen.move(util.linlin(0,128,composition_left,composition_right,(analysis_end/composition_length)*128), composition_top)
+  screen.move(util.linlin(0,127,composition_left,composition_right,(analysis_end/composition_length)*127), composition_top)
   screen.line_rel(0, composition_bottom-composition_top)
   screen.stroke()
   screen.level(2)
@@ -322,7 +351,7 @@ function display_waveform()
     -- local height = util.round(math.abs(s) * (scale))
     local height = util.round(math.abs(s) * ((composition_top-composition_bottom)))
     -- local height = util.round(math.abs(s) * 30)
-    screen.move(util.linlin(0,128,composition_left,composition_right,x_pos), center - (height/2))
+    screen.move(util.linlin(0,127,composition_left,composition_right,x_pos), center - (height/2))
     screen.line_rel(0, height)
     screen.stroke()
     x_pos = x_pos + 1
@@ -349,25 +378,33 @@ function redraw()
           total_slices = nil
         end
         --set cursor
-        screen.move(cursor_x+4,cursor_y)
-        screen.circle(cursor_x,cursor_y,5)
-
+        
         for k,v in pairs(points_data) do 
           -- tab.print(k,v) 
           local x = composition_left + math.ceil(v[1]*(132-composition_left))
           local y = composition_top + math.ceil(v[2]*(64-composition_top))
           screen.move(x,y)
           screen.pixel(x,y)
-          if (highlight_x and highlight_y) then
-            screen.move(highlight_x+2,highlight_y)
-            screen.circle(highlight_x,highlight_y,3)
-          end
+          screen.stroke()
         end
       else 
         print("no points data")
       end
-      screen.fill()
+      if (current_x and current_y) then
+        screen.move(current_x+2,current_y)
+        screen.circle(current_x,current_y,3)
+        screen.fill()
+      end
       screen.stroke()
+      if (previous_x and previous_y) then
+        screen.move(previous_x+2,previous_y)
+        screen.circle(previous_x,previous_y,3)
+      end
+      screen.stroke()
+      screen.move(cursor_x+4,cursor_y)
+      screen.circle(cursor_x,cursor_y,5)
+      screen.stroke()
+
 
     elseif mode == "start" then
       screen.move(10,10)
@@ -382,7 +419,7 @@ function redraw()
       print("show comp")
       if waveform_samples then
         screen.move(10,10)
-        screen.text("k3 to run analysis...")
+        screen.text("k1+k2 to transport audio...")
         display_waveform()
       end
     elseif mode == "recording" then
@@ -398,7 +435,7 @@ function redraw()
         screen.text("analysis in progress...")
       end
     end
-    screen.peek(0, 0, 128, 64)
+    screen.peek(0, 0, 127, 64)
     screen.update()
     screen_dirty = false
   end
