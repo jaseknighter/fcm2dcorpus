@@ -104,38 +104,40 @@ Engine_FCM2dCorpus : CroneEngine {
                 ("buf composed1").postln;
                 FluidBufCompose.process(s,loader.buffer,numFrames: loader.buffer.sampleRate*60*2,startChan:1,numChans:1,destination:src,destStartChan:0,gain:-6.dbamp,destGain:1,action:{
                   ("buf composed2").postln;
-                  ("audio composition completed").postln;
+                  ["audio composition completed",loader.buffer,loader.buffer.sampleRate*60*2,src,src_path,header_format,sample_format].postln;
                   // src.write(Platform.defaultTempDir+/+"src.wav", "WAV", 'int16', completionMessage:{lua_sender.sendMsg("/lua_fcm2dcorpus/src_written",Platform.defaultTempDir+/+"src.wav")});
                   writebuf.(src,src_path,header_format,sample_format,"compose");
                 });
               });
             }{
               "audio is already mono".postln;
-              ("audio composition completed").postln;
+              ["audio composition completed",loader.buffer,loader.buffer.sampleRate*60*2,src,src_path,header_format,sample_format].postln;
               // src.write(Platform.defaultTempDir+/+"src.wav", "WAV", 'int16', completionMessage:{lua_sender.sendMsg("/lua_fcm2dcorpus/src_written",Platform.defaultTempDir+/+"src.wav")});
               writebuf.(src,src_path,header_format,sample_format,"compose");
             };
         },{
           ["load file",folder_path, file_path].postln;
-          src = Buffer.read(s,file_path);
+          loader = Buffer.read(s,file_path);
+          src = Buffer.new(s);
           s.sync;
-          ["file loaded",src.numChannels,src.numFrames,src.sampleRate].postln;
-          if(src.numChannels > 1){
+          ["file loaded",loader.numChannels,loader.numFrames,loader.sampleRate].postln;
+          if(loader.numChannels > 1){
             "stereo to mono".postln;
-            FluidBufCompose.processBlocking(s,src,numFrames: src.sampleRate*60*2,startChan:0,numChans:1,destination:src,destStartChan:0,gain:-6.dbamp,action:{
+            FluidBufCompose.processBlocking(s,loader,numFrames: loader.sampleRate*60*2,startChan:0,numChans:1,destination:src,destStartChan:0,gain:-6.dbamp,action:{
               ("buf composed1").postln;
-              FluidBufCompose.processBlocking(s,src,numFrames: src.sampleRate*60*2,startChan:1,numChans:1,destination:src,destStartChan:0,gain:-6.dbamp,destGain:1,action:{
+              FluidBufCompose.processBlocking(s,loader,numFrames: loader.sampleRate*60*2,startChan:1,numChans:1,destination:src,destStartChan:0,gain:-6.dbamp,destGain:1,action:{
                 ("buf composed2").postln;
-                ("audio composition completed").postln;
+                ["audio composition completed",src.numChannels,src.numFrames,src.sampleRate].postln;
                 // src.write(Platform.defaultTempDir+/+"src.wav", "WAV", 'int16', completionMessage:{lua_sender.sendMsg("/lua_fcm2dcorpus/src_written",Platform.defaultTempDir+/+"src.wav")});
                 writebuf.(src,src_path,header_format,sample_format,"compose");
               });
             });
           }{
             "audio is already mono".postln;
+            src = loader;
             // src.write(Platform.defaultTempDir+/+"src.wav", "WAV", 'int16', completionMessage:{lua_sender.sendMsg("/lua_fcm2dcorpus/src_written",Platform.defaultTempDir+/+"src.wav")});
-            ("mono audio composition completed").postln;
             writebuf.(src,src_path,header_format,sample_format,"compose");
+            ["mono audio composition completed",src.numChannels,src.numFrames,src.sampleRate].postln;
           };
           // });
         });
@@ -347,7 +349,6 @@ Engine_FCM2dCorpus : CroneEngine {
       var sig = BufRd.ar(1,src,phs);
       var dursecs = min((stopsamp - startsamp) / BufSampleRate.kr(src),2);
       var env,outenv;
-      var grains;
       var rates=[-2,-1.5,-1.2,-1,-0.5,0.5,1,1.2,1.5,2];
 
       var phsAdd = LFNoise0.kr(5).range(0,dursecs*10*BufSampleRate.kr(src));
@@ -357,18 +358,9 @@ Engine_FCM2dCorpus : CroneEngine {
       var dursecsL = min((stopsampL - startsampL) / BufSampleRate.ir(src),2);
       var transportSig,transportGrains;
       var tpan,tenv;
-      var gTrig = yloc.linlin(0,1,60,1);
-      var ptr;
               
-
-
-
       env = EnvGen.kr(Env([0,1,1,0],[0.03,dursecs-0.06,0.03]),gate:gate* Trig.kr(Impulse.kr(2)));
-
-
       transportSig = FluidAudioTransport.ar(sig,sigL,xloc,windowSize,hopSize,fftSize);
-
-      
       tpan = xloc.linlin(0,1,-1, 1);
       // tenv = EnvGen.kr(
       //   // Env([0, 1, 0], [(1/30)/2, (1/30)/2], \sin, 1),
@@ -378,29 +370,8 @@ Engine_FCM2dCorpus : CroneEngine {
       //   doneAction: 2
       // );
 
-      
-      // BufWr.ar(inputArray, bufnum: 0, phase: 0.0, loop: 1.0)
-      ptr = Phasor.ar(trig:Impulse.kr(0.5), rate:BufRateScale.ir(grBuf), start:0, end:BufFrames.ir(grBuf), resetPos:0);
-      BufWr.ar(inputArray:transportSig, bufnum: grBuf, phase: ptr, loop: 1);
-
-      // transportGrains = GrainBuf.ar(numChannels:1,trigger:Impulse.kr(10), dur:xloc.linlin(0,1,1,0.1), sndbuf:grBuf, rate:xloc.linlin(0,1,0,2),maxGrains:100)*tenv;
-      // transportGrains = BufGrain.ar(Impulse.kr(gTrig), 0.2, rec, rate);
-      
-      // GrainBuf.ar(numChannels: 1, trigger: 0, dur: 1, sndbuf, rate: 1, pos: 0, interp: 2, pan: 0, envbufnum: -1, maxGrains: 512, mul: 1, add: 0)
-      transportGrains = GrainBuf.ar(
-        numChannels:1,
-        trigger:Impulse.kr(xloc.linlin(0,1,20,1)), 
-        dur:xloc.linlin(0,1,0.05,0.5), 
-        sndbuf:grBuf, 
-        rate:rate,
-        pos: (ptr-(ptrdelay+SampleRate.ir))/BufFrames.ir(grBuf),
-        maxGrains:100
-      );
-
-
-      transportSig=(transportSig.dup*env * yloc)+(transportGrains*(1-yloc));
-      // transportSig=transportGrains*(1-yloc);
-      Out.ar([0,1],transportSig.dup*env);
+      transportSig=(transportSig.dup*env);
+      Out.ar([0,1],transportSig);
     }).add;
 
     s.sync;
