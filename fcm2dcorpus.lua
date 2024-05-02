@@ -133,7 +133,7 @@ function osc.event(path,args,from)
   elseif path == "/lua_fcm2dcorpus/slice_played" then
     local current_slice_id = tostring(args[1])
     local previous_slice_id = tostring(args[2])
-    tab.print(args)
+    -- tab.print(args)
     current_x = points_data[current_slice_id][1]
     current_y = points_data[current_slice_id][2]
     current_x = composition_left + math.ceil(current_x*(127-composition_left))
@@ -224,6 +224,7 @@ function num_files_in_folder(path)
 end
 
 function setup_params()
+  params:add_separator("slice/transport")
   params:add_control("cursor_x", "cursor x",controlspec.new(0,1,'lin',0.01,0.5,'',0.01))
   params:set_action("cursor_x", function(x) 
     cursor_x = util.clamp(x*127,composition_left,127)
@@ -236,7 +237,36 @@ function setup_params()
   end)
   params:add_trigger("select_folder_file", "select folder/file" )
   params:set_action("select_folder_file", function(x) selecting_file = true fileselect.enter(_path.audio, set_audio_path) end)
+  params:add_trigger("record_live", "record live")
+  params:set_action("record_live", function() 
+    mode = "recording"
+    screen_dirty = true
+    print("record live")
+    local duration = 10
+    print("start record live")
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/record_live",{duration})
+  end)
   params:add_option("auto_analyze","auto analyze",{"off","on"},2)
+  params:add_control("slice_volume","slice volume",controlspec.new(0,1,'lin',0.1,1))
+  params:add_control("transport_volume","transport volume",controlspec.new(0,1,'lin',0.1,1))
+  params:set_action("transport_volume", function(vol)         
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/set_transport_volume",{vol}) 
+  end)
+  params:add_control("transport_trig_rate","transport trig rate",controlspec.new(1,120,'lin',1,12,"/beat",1/120))
+  params:set_action("transport_trig_rate", function(trig_rate)         
+    trig_rate = trig_rate/(clock.get_beat_sec())
+    -- trig_rate = trig_rate/(4*clock.get_beat_sec())
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/set_transport_trig_rate",{trig_rate}) 
+  end)
+  params:add_control("transport_reset_pos","transport reset pos",controlspec.new(0,1,'lin',0,1))
+  params:set_action("transport_reset_pos", function(pos)         
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/set_transport_reset_pos",{pos}) 
+  end)
+  params:add_control("transport_stretch","transport stretch",controlspec.new(-5,5,'lin',0.01,0,'',1/1000))
+  params:set_action("transport_stretch", function(stretch)         
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/set_transport_stretch",{stretch}) 
+  end)
+  
 end
 
 
@@ -291,18 +321,12 @@ function key(k,z)
       osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/transport_slice",{x/127,y/64})
     end
   elseif k==3 and z==0 then
-    if alt_key == true then
+    if alt_key == true and mode == "start" then
+      params:set("record_live",1)
+    elseif alt_key == true then
       transport_gate = transport_gate == 1 and 0 or 1
       osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/transport_gate",{transport_gate})
       print("transport_gate",transport_gate)
-      
-      
-      -- mode = "recording"
-      -- screen_dirty = true
-      -- print("record live")
-      -- local duration = 20
-      -- print("start record live")
-      -- osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/record_live",{duration})
     elseif mode == "audio composed" then
       mode = "analysing"
       screen_dirty = true
@@ -360,7 +384,7 @@ end
 function play_slice()
   local x = math.ceil(util.linlin(composition_left,127,1,127,cursor_x))
   local y = math.ceil(util.linlin(composition_top,64,1,64,cursor_y))
-  osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/play_slice",{x/127,y/64})
+  osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/play_slice",{x/127,y/64,params:get("slice_volume")})
 end
 
 ------------------------------
@@ -517,8 +541,6 @@ function redraw()
       screen.move(cursor_x+4,cursor_y)
       screen.circle(cursor_x,cursor_y,5)
       screen.stroke()
-
-
     elseif mode == "start" then
       screen.move(composition_left,composition_top-6)
       screen.text("k2 to select folder/file...")

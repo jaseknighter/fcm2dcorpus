@@ -19,19 +19,24 @@ Engine_FCM2dCorpus : CroneEngine {
     var s = context.server;
     var compose, writebuf, append_slice, remove_slice, renumber_reduced_slice_array, recordlive, analyze, play_slice, lua_sender,sc_sender;
     var tree;
-    var composewritebufdone, composelivewritebufdone, analyzewritebufdone;
+    var composewritebufdone, composelivewritebufdone, analyzewritebufdone, transportwritebufdone;
     var current;    
     var indices = Buffer.new(s);
     var gslicebuf = Buffer.alloc(s, 1);
     var gslicesbuf = Buffer.alloc(s, 1);
     var gslicesbuf_temp = Buffer.alloc(s, 1);
     var gslices = Array.new();
-    var point, previous;
+    var point, previous, previousTransport;
     var src,normedBuf;
     var findices;
     var playing_slice=false;
     var audio_path="/home/we/dust/audio/fcm2dcorpus/";
-      
+    var transport_volume=1;
+    var transport_trig_rate=2;
+    var transport_reset_pos=0;
+    var transport_stretch=0;
+    var transportBuffer = Buffer.alloc(s, 48000*5);
+    // var transportBuffer = Buffer.alloc(s, 1);
  
     eglut = EGlut.new(s,context,this);
     osc_funcs = Dictionary.new();
@@ -66,6 +71,11 @@ Engine_FCM2dCorpus : CroneEngine {
       "analyze writebufdone".postln;
       lua_sender.sendMsg("/lua_fcm2dcorpus/analyze_written");
     };
+    
+    transportwritebufdone = {
+      "transport writebufdone".postln;
+      // lua_sender.sendMsg("/lua_fcm2dcorpus/analyze_written");
+    };
 
     writebuf = {
       arg buf, path, header_format, sample_format,msg;
@@ -80,6 +90,9 @@ Engine_FCM2dCorpus : CroneEngine {
       if (msg == "analyze",{
         buf.write(path, header_format, sample_format,completionMessage:analyzewritebufdone);
       });
+      if (msg == "transport",{
+        buf.write(path, header_format, sample_format,completionMessage:transportwritebufdone);
+      });
     };
     
     SynthDef(\recordlive, { | buf, rate=1, secs=10.0|
@@ -91,27 +104,37 @@ Engine_FCM2dCorpus : CroneEngine {
       0.0 //quiet
     }).add;
 
-    //  SynthDef("transport_player", { |xloc=0.5,yloc=0.5,src,index=0,rate=1,gate=1,env_trig_rate=2,startsamp,stopsamp,startsampL,stopsampL,windowSize = 512, hopSize = 256, fftSize = 512,tamp=1|
-     SynthDef("transport_player", { |xloc=0.5,yloc=0.5,src,index=0,rate=1,gate=1,env_trig_rate=2,startsamp,stopsamp,startsampL,stopsampL,windowSize = 256, hopSize = 128, fftSize = 256,tamp=1|
+    //  SynthDef("transport_player", { |xloc=0.5,yloc=0.5,src,index=0,rate=1,gate=1,env_trig_rate=2,startsamp,stopsamp,startsamp_prev,stopsamp_prev,windowSize = 512, hopSize = 256, fftSize = 512,tamp=1|
+     SynthDef("transport_player", { |xloc=0.5,yloc=0.5,src,index=0,rate=1,gate=1,env_trig_rate=12,startsamp,stopsamp,startsamp_prev,stopsamp_prev,windowSize = 256, hopSize = 128, fftSize = 256,tamp=1,reset_pos=0, stretch=0|
       var ptrdelay=0.2;
-      var phs = Phasor.ar(0,BufRateScale.kr(src)*rate,startsamp,stopsamp);
-      var sig = BufRd.ar(1,src,phs);
-      var dursecs = min((stopsamp - startsamp) / BufSampleRate.kr(src),2);
+      var phs;
+      var sig;
+      var dursecs = min((((stopsamp) - startsamp) / BufSampleRate.kr(src))+stretch,2+stretch);
       var env,outenv;
       var rates=[-2,-1.5,-1.2,-1,-0.5,0.5,1,1.2,1.5,2];
 
-      var phsAdd = LFNoise0.kr(5).range(0,dursecs*10*BufSampleRate.kr(src));
-      var phsL = Phasor.ar(0,BufRateScale.kr(src)*rate,startsampL+phsAdd,stopsampL+phsAdd);
-      
+      // var tpan
+      var tenv;
+      var trig_rate = Lag.kr(env_trig_rate);
+      var phasor_trig = Impulse.kr(trig_rate);
+      var env_trig=Trig.kr(Impulse.kr(trig_rate));
+
+      // var phsAdd = LFNoise0.kr(5).range(0,dursecs*10*BufSampleRate.kr(src));
+      var phsL = Phasor.ar(phasor_trig,rate,startsamp_prev,stopsamp_prev+(stretch*BufSampleRate.kr(src)),reset_pos*(stopsamp_prev - startsamp_prev));
       var sigL = BufRd.ar(1,src,phsL);
-      var dursecsL = min((stopsampL - startsampL) / BufSampleRate.ir(src),2);
       var transportSig,transportGrains;
-      var tpan,tenv;
-      var env_trig=Trig.kr(Impulse.kr(env_trig_rate));
-              
-      env = EnvGen.kr(Env([0,1,1,0],[0.05,dursecs-0.1,0.05]),gate:gate* env_trig);
-      transportSig = FluidAudioTransport.ar(sig,sigL,xloc,windowSize,hopSize,fftSize);
-      tpan = xloc.linlin(0,1,-1, 1);
+      // dursecs = min(dursecs,1/trig_rate);
+      // var = min(0.1,dursecs/10);
+      // [reset_pos,stretch].poll;
+      env = EnvGen.kr(Env([0,1,1,0],[0.05,dursecs-1,0.05]),gate:gate* env_trig);
+      // env = EnvGen.kr(Env([0,1,1,0],[env_ad_time,dursecs-(env_ad_time*2),env_ad_time]),gate:gate* env_trig);
+      
+      phs = Phasor.ar(phasor_trig,rate,startsamp,stopsamp+(stretch*BufSampleRate.kr(src)),reset_pos*(stopsamp - startsamp));
+      sig = BufRd.ar(1,src,phs);
+
+      
+      transportSig = FluidAudioTransport.ar(sig,sigL,xloc,windowSize,hopSize,fftSize,);
+      // tpan = xloc.linlin(0,1,-1, 1);
       // tenv = EnvGen.kr(
       //   // Env([0, 1, 0], [(1/30)/2, (1/30)/2], \sin, 1),
       //   Env([0, 1, 0], [dursecs, 0], \sin, 1),
@@ -120,16 +143,25 @@ Engine_FCM2dCorpus : CroneEngine {
       //   doneAction: 2
       // );
 
-      FluidBufCompose.process(s, src, startsampL,stopsampL, startChan: 0, numChans: 1, gain: 1, destination: gslicebuf, destStartFrame: 0, destStartChan: 0, destGain: 0, freeWhenDone: true, action: {
-        ["gslicebuf composed",gslicebuf].postln;
+      // FluidBufCompose.process(s, src, startsamp_prev,stopsamp_prev, startChan: 0, numChans: 1, gain: 1, destination: gslicebuf, destStartFrame: 0, destStartChan: 0, destGain: 0, freeWhenDone: true, action: {
+      //   ["transportslice composed",gslicebuf].poll;
         // eglut.fillEGBufs(1,gslicebuf);
         // gslicebuf.write(gslicebuf_path,header_format,sample_format);            
-        lua_sender.sendMsg("/lua_fcm2dcorpus/gslicebuf_composed");
-      });
+        // lua_sender.sendMsg("/lua_fcm2dcorpus/gslicebuf_composed");
+      // });
+
+      RecordBuf.ar(sig, transportBuffer,loop:1,doneAction:0);
+      // RecordBuf.ar(transportSig, transportBuffer,loop:1);
+      
+      transportSig=(transportSig.dup*env)*0.25*tamp;
+
+      // BufWr.ar(transportSig, transportBuffer, phs);
+      // [transportSig, transportBuffer, phs].poll;
 
 
+      // [((stopsamp+(stretch*BufSampleRate.kr(src)))-startsamp)/BufSampleRate.kr(src)].poll;
+      // SendReply.kr(Impulse.kr(10), "/transportslice_composed");
 
-      transportSig=(transportSig.dup*env)*0.25*yloc;
       Out.ar([0,1],transportSig);
     }).add;
 
@@ -137,12 +169,12 @@ Engine_FCM2dCorpus : CroneEngine {
 
      //play a slice
     play_slice = {
-      arg index,startInt,durInt,len=2;
+      arg index,startInt,durInt,volume=1;
       {
         var startsamp = Index.kr(indices,index);
         var stopsamp = Index.kr(indices,index+1);
         var phs = Phasor.ar(0,BufRateScale.ir(src),startsamp,stopsamp);
-        var sig = BufRd.ar(1,src,phs);
+        var sig = BufRd.ar(1,src,phs)*volume*2;
         var dursecs = (stopsamp - startsamp) / BufSampleRate.ir(src);
         var env;
         var ptr, bufrate;
@@ -555,6 +587,7 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg, time, addr, recvPort|
         var x=msg[1];
         var y=msg[2];
+        var volume=msg[3];
         point.setn(0,[x,y]);
         tree.kNearest(point,1,{
           arg nearest;
@@ -564,7 +597,7 @@ Engine_FCM2dCorpus : CroneEngine {
             stop = findices[nearest.asInteger+1];
             dur = stop-start;
             ["start,dur", start,stop,dur].postln;
-            play_slice.(nearest.asInteger,start,dur);
+            play_slice.(nearest.asInteger,start,dur,volume);
             // previous = nearest;
             current=nearest;
             lua_sender.sendMsg("/lua_fcm2dcorpus/slice_played",current,previous);
@@ -615,23 +648,38 @@ Engine_FCM2dCorpus : CroneEngine {
         tree.kNearest(point,1,action:{
           arg nearest;
           var startsamp,stopsamp;
-    			var startsampL,stopsampL;
+    			var startsamp_prev,stopsamp_prev;
+
+
           if(playing_slice == false,{
-            // "transport slice".postln;
             if (players.at(\currentPlayer)!=nil,{
               players.at(\currentPlayer).postln;
-              startsampL=findices[current.asInteger];
-              stopsampL=findices[current.asInteger+1];
+              ["transport slice nearest/current1", nearest,current,previousTransport].postln;
+              startsamp_prev=findices[previousTransport.asInteger];
+              stopsamp_prev=findices[previousTransport.asInteger+1];
+              // startsamp_prev=findices[current.asInteger];
+              // stopsamp_prev=findices[current.asInteger+1];
               players.at(\currentPlayer).set(\gate,0);
               players.at(\currentPlayer).free;
             },{
-              startsampL=findices[nearest.asInteger];
-              stopsampL=findices[nearest.asInteger+1];
+              if(previousTransport!=nil,{
+                ["transport slice nearest/current2",nearest,current,previousTransport].postln;
+                startsamp_prev=findices[previousTransport.asInteger];
+                stopsamp_prev=findices[previousTransport.asInteger+1];
+              },{
+              startsamp_prev=findices[nearest.asInteger];
+              stopsamp_prev=findices[nearest.asInteger+1];
+              });
             });
             startsamp=findices[nearest.asInteger];
             stopsamp=findices[nearest.asInteger+1];
-            // players.add(\currentPlayer->Synth(
-            players.add(\nearestPlayer->Synth(
+
+            // transportBuffer.zero;
+            transportBuffer.numFrames = (stopsamp+(transport_stretch*BufSampleRate.kr(src)))-startsamp;
+            // transportBuffer = Buffer.alloc(s,(stopsamp+(transport_stretch*BufSampleRate.kr(src)))-startsamp);
+
+            // players.add(\nearestPlayer->Synth(
+            players.add(\currentPlayer->Synth(
               \transport_player,[
                 \xloc,x,
                 \yloc,y,
@@ -639,20 +687,26 @@ Engine_FCM2dCorpus : CroneEngine {
                 \index, nearest.asInteger,
                 \startsamp,startsamp,
                 \stopsamp,stopsamp,
-                \startsampL,startsampL,
-                \stopsampL,stopsampL,
+                \startsamp_prev,startsamp_prev,
+                \stopsamp_prev,stopsamp_prev,
+                \tamp,transport_volume,
+                \env_trig_rate,transport_trig_rate,
+                \reset_pos,transport_reset_pos,
               ]
             ));
             Routine({
               playing_slice = true;
               lua_sender.sendMsg("/lua_fcm2dcorpus/slice_played",nearest,current);
-              current = nearest;
+              // current=nearest;
+              previousTransport=current;
 
-              players.add(\currentPlayer->players.at(\nearestPlayer));
-              players.add(\nearestPlayer->nil);
+              // players.add(\currentPlayer->players.at(\nearestPlayer));
+              // players.add(\nearestPlayer->nil);
               // players.at(\nearestPlayer).postln;
               0.1.wait;
               playing_slice = false;
+              2.wait;
+              sc_sender.sendMsg("/transportslice_composed");
             }).play
           });
         });
@@ -675,6 +729,52 @@ Engine_FCM2dCorpus : CroneEngine {
         players.at(\currentPlayer).set(\yloc,y);
       }, "/sc_fcm2dcorpus/transport_slice_x_y");
     );
+
+    osc_funcs.put("set_transport_volume",
+      OSCFunc.new({ |msg, time, addr, recvPort|
+        var vol = msg[1];
+        transport_volume = vol;
+        players.at(\currentPlayer).set(\tamp,vol);
+      }, "/sc_fcm2dcorpus/set_transport_volume");
+    );
+
+    osc_funcs.put("set_transport_trig_rate",
+      OSCFunc.new({ |msg, time, addr, recvPort|
+        var rate = msg[1];
+        transport_trig_rate = rate;
+        players.at(\currentPlayer).set(\env_trig_rate,rate);
+      }, "/sc_fcm2dcorpus/set_transport_trig_rate");
+    );
+
+    osc_funcs.put("set_transport_reset_pos",
+      OSCFunc.new({ |msg, time, addr, recvPort|
+        var pos = msg[1];
+        transport_reset_pos = pos;
+        players.at(\currentPlayer).set(\reset_pos,pos);
+      }, "/sc_fcm2dcorpus/set_transport_reset_pos");
+    );
+
+    osc_funcs.put("set_transport_stretch",
+      OSCFunc.new({ |msg, time, addr, recvPort|
+        var stretch = msg[1];
+        transport_stretch = stretch;
+        players.at(\currentPlayer).set(\stretch,stretch);
+      }, "/sc_fcm2dcorpus/set_transport_stretch");
+    );
+
+    osc_funcs.put("transportslice_composed",
+      OSCdef(\transportslice_composed, {|msg| 
+        var header_format="WAV", sample_format="int24";
+        var transportbuf_path=audio_path ++ "temp/transportbuf.wav";
+        "transportslice_composed".postln;
+        transportBuffer.postln;
+        transportBuffer.getn(0, 20, {|msg| msg.postln});
+
+        // transportBuffer.write(transportbuf_path,header_format,sample_format);
+        
+        writebuf.(transportBuffer,transportbuf_path,header_format,sample_format,"transport");
+      }, "/transportslice_composed");
+    );    
   }
 
   free {

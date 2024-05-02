@@ -2,22 +2,27 @@ local e={}
 
 divisions={1,2,4,6,8,12,16}
 division_names={"2 wn","wn","hn","hn-t","qn","qn-t","eighth"}
-param_list={"overtones","overtoneslfo","subharmonics","subharmonicslfo","sizelfo","densitylfo","speedlfo","volumelfo","spreadlfo","spread_sig_lfo","jitterlfo","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","selected_gslice","sample"}
+param_list={"overtones","overtoneslfo","subharmonics","subharmonicslfo","sizelfo","densitylfo","speedlfo","volumelfo","spreadlfo","spread_sig_lfo","jitterlfo","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","remove_selected_gslice","selected_gslice","sample"}
 param_list_delay={"delay_volume","delay_mod_freq","delay_mod_depth","delay_fdbk","delay_diff","delay_damp","delay_size","delay_time"}
 num_samples=1
   
-function e:bang(scene)
-  for i=1,num_samples do
-    for _,param_name in ipairs(param_list) do
-      local p=params:lookup_param(i..param_name..scene)
+function e:bang(scene, bangscope)
+  bangscope = bangscope or 1
+  if bangscope < 3 then
+    for i=1,num_samples do
+      for _,param_name in ipairs(param_list) do
+        local p=params:lookup_param(i..param_name..scene)
+        if p.t~=6 then p:bang() end
+      end
+      local p=params:lookup_param(i.."pattern"..scene)
       p:bang()
     end
-    local p=params:lookup_param(i.."pattern"..scene)
-    p:bang()
   end
-  for _,param_name in ipairs(param_list_delay) do
-    local p=params:lookup_param(param_name..scene)
-    p:bang()
+  if bangscope ~= 2 then
+    for _,param_name in ipairs(param_list_delay) do
+      local p=params:lookup_param(param_name..scene)
+      if p.t~=6 then p:bang() end
+    end
   end
 end
 
@@ -55,7 +60,7 @@ function e:setup_params()
   params:add_number("selected_sample","selected sample",1,num_samples,1)
   local old_volume={0.25,0.25,0.25,0.25}
   for i=1,num_samples do
-    params:add_group("sample "..i,62)
+    params:add_group("sample "..i,64)
     params:add_option(i.."scene","scene",{"a","b"},1)
     params:set_action(i.."scene",function(scene)
       for _,param_name in ipairs(param_list) do
@@ -63,10 +68,11 @@ function e:setup_params()
         params:hide(i..param_name..(3-scene))
         params:show(i..param_name..scene)
         local p=params:lookup_param(i..param_name..scene)
-        p:bang()
+        -- p:bang()
       end
-      local p=params:lookup_param(i.."pattern"..scene)
-      p:bang()
+      e:bang(scene)
+      -- local p=params:lookup_param(i.."pattern"..scene)
+      -- p:bang()
       -- if params:get(i.."pattern"..scene)=="" or params:get(i.."pattern"..scene)=="[]" then
         -- granchild_grid:toggle_playing_voice(i,false)
       -- end
@@ -95,6 +101,7 @@ function e:setup_params()
         local selected_gslice = params:get(i.."selected_gslice"..scene)
         local slice_start = gslices[(selected_gslice*2)-1]
         local slice_end = gslices[selected_gslice*2]
+        print("remove")
         osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/remove_selected_gslice",{i,selected_gslice-1,slice_start,slice_end})
       end)
       
@@ -116,7 +123,7 @@ function e:setup_params()
       end)
       params:add_option(i.."volumelfo"..scene,"volume lfo",{"off","on"},1)
 
-      params:add_control(i.."speed"..scene,"speed",controlspec.new(-2.0,2.0,"lin",0.1,0,"",0.1/4))
+      params:add_control(i.."speed"..scene,"speed",controlspec.new(-2.0,2.0,"lin",0.01,0,"",0.01/1))
       -- params:add_control(i.."speed"..scene,"speed",controlspec.new(-2.0,2.0,"lin",0.1,0,"",0.1/4))
       params:set_action(i.."speed"..scene,function(value) engine.speed(i,value) end)
       params:add_option(i.."speedlfo"..scene,"speed lfo",{"off","on"},1)
@@ -125,7 +132,7 @@ function e:setup_params()
       params:add_control(i.."pos"..scene,"pos",controlspec.new(-1/40,1/40,"lin",0.001,0))
       params:set_action(i.."pos"..scene,function(value) engine.seek(i,util.clamp(value+params:get(i.."seek"..scene),0,1)) end)
 
-      params:add_control(i.."size"..scene,"size",controlspec.new(1,15,"lin",1,5,"",1/15))
+      params:add_control(i.."size"..scene,"size",controlspec.new(0.1,15,"exp",0.01,1,"",0.01/1))
       params:set_action(i.."size"..scene,function(value)
         engine.size(i,util.clamp(value*clock.get_beat_sec()/10,0.001,util.linlin(1,40,1,0.1,params:get(i.."density"..scene))))
       end)
@@ -135,13 +142,13 @@ function e:setup_params()
       params:set_action(i.."spread_sig"..scene,function(value) engine.spread_sig(i,value/1000) end)
       params:add_option(i.."spread_sig_lfo"..scene,"spread lfo",{"off","on"},1)
       
-      params:add_taper(i.."spread_sig_offset1"..scene,"spread offset 1",-500,500,0,5,"ms")
+      params:add_taper(i.."spread_sig_offset1"..scene,"spread offset 1",0,500,0,5,"ms")
       params:set_action(i.."spread_sig_offset1"..scene,function(value) engine.spread_sig_offset1(i,value/1000) end)
       
-      params:add_taper(i.."spread_sig_offset2"..scene,"spread offset 2",-500,500,0,5,"ms")
+      params:add_taper(i.."spread_sig_offset2"..scene,"spread offset 2",0,500,0,5,"ms")
       params:set_action(i.."spread_sig_offset2"..scene,function(value) engine.spread_sig_offset2(i,value/1000) end)
       
-      params:add_taper(i.."spread_sig_offset3"..scene,"spread offset 3",-500,500,0,5,"ms")
+      params:add_taper(i.."spread_sig_offset3"..scene,"spread offset 3",0,500,0,5,"ms")
       params:set_action(i.."spread_sig_offset3"..scene,function(value) engine.spread_sig_offset3(i,value/1000) end)
       
       params:add_taper(i.."jitter"..scene,"jitter",0,500,0,5,"ms")
@@ -149,16 +156,17 @@ function e:setup_params()
       params:add_option(i.."jitterlfo"..scene,"jitter lfo",{"off","on"},2)
 
       params:add_control(i.."density"..scene,"density",controlspec.new(1,40,"lin",1,12,"/beat",1/40))
-      params:set_action(i.."density"..scene,function(value) engine.density(i,value/(4*clock.get_beat_sec())) end)
+      params:set_action(i.."density"..scene,function(value) engine.density(i,value/(clock.get_beat_sec())) end)
+      -- params:set_action(i.."density"..scene,function(value) engine.density(i,value/(4*clock.get_beat_sec())) end)
       params:add_option(i.."densitylfo"..scene,"density lfo",{"off","on"},1)
 
       -- update clock tempo param to reset density 
-      local old_tempo_action=params:lookup_param("clock_tempo").action
-      local tempo=params:lookup_param("clock_tempo")
-      tempo.action = function ()
+      -- local old_tempo_action=params:lookup_param("clock_tempo").action
+      -- local tempo=params:lookup_param("clock_tempo")
+      -- tempo.action = function ()
         
-        old_tempo_action()
-      end
+      --   old_tempo_action()
+      -- end
 
 
       params:add_control(i.."pitch"..scene,"pitch",controlspec.new(-48,48,"lin",1,0,"note",1/96))
@@ -250,12 +258,13 @@ function e:setup_params()
   params:add_group("delay",17)
   params:add_option("delayscene","scene",{"a","b"},1)
   params:set_action("delayscene",function(scene)
-    for _,param_name in ipairs(param_list_delay) do
-      params:hide(i..param_name..(3-scene))
-      params:show(i..param_name..scene)
-      local p=params:lookup_param(i..param_name..scene)
-      p:bang()
-    end
+    -- for _,param_name in ipairs(param_list_delay) do
+    --   params:hide(i..param_name..(3-scene))
+    --   params:show(i..param_name..scene)
+    --   local p=params:lookup_param(i..param_name..scene)
+    --   p:bang()
+    -- end
+    e:bang(scene,3)
   end)
   for scene=1,2 do
     -- effect controls
