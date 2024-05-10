@@ -5,7 +5,15 @@ division_names={"2 wn","wn","hn","hn-t","qn","qn-t","eighth"}
 param_list={"overtones","overtoneslfo","subharmonics","subharmonicslfo","sizelfo","densitylfo","speedlfo","volumelfo","spreadlfo","spread_sig_lfo","jitterlfo","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","remove_selected_gslice","selected_gslice","sample"}
 param_list_delay={"delay_volume","delay_mod_freq","delay_mod_depth","delay_fdbk","delay_diff","delay_damp","delay_size","delay_time"}
 num_samples=1
-  
+
+function e:init(waveform_loader)
+  e.sample_selected_callback = waveform_loader
+end
+
+function e:on_sample_selected(file)
+  e.sample_selected_callback(file)
+end
+
 function e:bang(scene, bangscope)
   bangscope = bangscope or 1
   if bangscope < 3 then
@@ -83,7 +91,8 @@ function e:setup_params()
       params:set_action(i.."sample"..scene,function(file)
         print("sample "..file)
         if file~="-" then
-          clock.run(load_waveform,file)
+          -- clock.run(load_waveform,file)
+          e:on_sample_selected(file)
           engine.read(i,file)
           params:set(i.."play"..scene,2)
           if params:get(i.."sample"..(3-scene))=="-" then
@@ -123,7 +132,7 @@ function e:setup_params()
       end)
       params:add_option(i.."volumelfo"..scene,"volume lfo",{"off","on"},1)
 
-      params:add_control(i.."speed"..scene,"speed",controlspec.new(-2.0,2.0,"lin",0.01,0,"",0.01/1))
+      params:add_control(i.."speed"..scene,"speed",controlspec.new(-2.0,2.0,"lin",0.01,0.1,"",0.01/1))
       -- params:add_control(i.."speed"..scene,"speed",controlspec.new(-2.0,2.0,"lin",0.1,0,"",0.1/4))
       params:set_action(i.."speed"..scene,function(value) engine.speed(i,value) end)
       params:add_option(i.."speedlfo"..scene,"speed lfo",{"off","on"},1)

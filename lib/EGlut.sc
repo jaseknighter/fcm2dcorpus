@@ -14,7 +14,7 @@ EGlut {
 	var <levels;
 	var <gr_envbufs;
   var updating_gr_envbufs = false;
-  var prev_pos_sig1=0, prev_pos_sig2=0, prev_pos_sig3=0, prev_pos_sig4=0;
+  var prev_sig_pos1=0, prev_sig_pos2=0, prev_sig_pos3=0, prev_sig_pos4=0;
 
 	var <seek_tasks;
 
@@ -91,12 +91,12 @@ EGlut {
       var grain_trig;
       var trig_rnd;
       var jitter_sig, jitter_sig2, jitter_sig3, jitter_sig4;
-      var pos_sig1, pos_sig2, pos_sig3, pos_sig4;
+      var sig_pos1, sig_pos2, sig_pos3, sig_pos4;
       var buf_dur;
       var pan_sig;
       var pan_sig2;
       var buf_pos;
-      var pos_sig;
+      var sig_pos;
       var sig;
 
       var env;
@@ -142,21 +142,21 @@ EGlut {
         rate: buf_dur.reciprocal / ControlRate.ir * speed,
         start:buf_pos_start, end:buf_pos_end, resetPos: pos);
 
-      pos_sig = Wrap.kr(Select.kr(freeze, [buf_pos, pos]));
-      pos_sig1=(pos_sig+jitter_sig).wrap(0,1);
-      pos_sig2=(pos_sig+jitter_sig2+(spread_sig)+spread_sig_offset1).wrap(0,1);
-      pos_sig3=(pos_sig+jitter_sig3+(spread_sig*2)+spread_sig_offset2).wrap(0,1);
-      pos_sig4=(pos_sig+jitter_sig4+(spread_sig*3)+spread_sig_offset3).wrap(0,1);
-      // [pos_sig1,pos_sig2,pos_sig3,pos_sig4].poll;
+      sig_pos = Wrap.kr(Select.kr(freeze, [buf_pos, pos]));
+      sig_pos1=(sig_pos+jitter_sig).wrap(0,1);
+      sig_pos2=(sig_pos+jitter_sig2+(spread_sig)+spread_sig_offset1).wrap(0,1);
+      sig_pos3=(sig_pos+jitter_sig3+(spread_sig*2)+spread_sig_offset2).wrap(0,1);
+      sig_pos4=(sig_pos+jitter_sig4+(spread_sig*3)+spread_sig_offset3).wrap(0,1);
+      // [sig_pos1,sig_pos2,sig_pos3,sig_pos4].poll;
       
-      SendReply.kr(Impulse.kr(10), "/osc_pos_sigs", [pos_sig1, pos_sig2, pos_sig3, pos_sig4]);
+      SendReply.kr(Impulse.kr(10), "/eglut_sigs_pos", [sig_pos1, sig_pos2, sig_pos3, sig_pos4]);
 
       sig = GrainBuf.ar(
             numChannels: 2, 
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf, 
-            pos: pos_sig1,
+            pos: sig_pos1,
             interp: 2, 
             pan: pan_sig,
             rate:pitch,
@@ -169,7 +169,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf2, 
-            pos: pos_sig1, 
+            pos: sig_pos1, 
             interp: 2, 
             pan: pan_sig2,
             rate:pitch,
@@ -184,7 +184,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf, 
-            pos: pos_sig2, 
+            pos: sig_pos2, 
             interp: 2, 
             pan: pan_sig,
             rate:pitch,
@@ -197,7 +197,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf2, 
-            pos: pos_sig2, 
+            pos: sig_pos2, 
             interp: 2, 
             pan: pan_sig2,
             rate:pitch,
@@ -210,7 +210,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf, 
-            pos: pos_sig3, 
+            pos: sig_pos3, 
             interp: 2, 
             pan: pan_sig,
             rate:pitch,
@@ -223,7 +223,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf2, 
-            pos: pos_sig3, 
+            pos: sig_pos3, 
             interp: 2, 
             pan: pan_sig2,
             rate:pitch,
@@ -236,7 +236,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf, 
-            pos: pos_sig4, 
+            pos: sig_pos4, 
             interp: 2, 
             pan: pan_sig,
             rate:pitch,
@@ -249,7 +249,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf2, 
-            pos: pos_sig4, 
+            pos: sig_pos4, 
             interp: 2, 
             pan: pan_sig2,
             rate:pitch,
@@ -266,7 +266,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf, 
-            pos: pos_sig2, 
+            pos: sig_pos2, 
             interp: 2, 
             pan: pan_sig,
             rate:pitch/2,
@@ -279,7 +279,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf2, 
-            pos: pos_sig2, 
+            pos: sig_pos2, 
             interp: 2, 
             pan: pan_sig2,
             rate:pitch/2,
@@ -292,7 +292,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf, 
-            pos: pos_sig3, 
+            pos: sig_pos3, 
             interp: 2, 
             pan: pan_sig,
             rate:pitch*2,
@@ -305,7 +305,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf2, 
-            pos: pos_sig3, 
+            pos: sig_pos3, 
             interp: 2, 
             pan: pan_sig2,
             rate:pitch*2,
@@ -318,7 +318,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf, 
-            pos: pos_sig4, 
+            pos: sig_pos4, 
             interp: 2, 
             pan: pan_sig,
             rate:pitch*4,
@@ -331,7 +331,7 @@ EGlut {
             trigger:grain_trig, 
             dur:size, 
             sndbuf:buf2, 
-            pos: pos_sig4, 
+            pos: sig_pos4, 
             interp: 2, 
             pan: pan_sig2,
             rate:pitch*4,
@@ -353,7 +353,7 @@ EGlut {
       level = env;
       Out.ar(out, sig * level * gain);
       Out.ar(effectBus, sig * level * send );
-      Out.kr(phase_out, pos_sig);
+      Out.kr(phase_out, sig_pos);
       // ignore gain for level out
       Out.kr(level_out, level);
     }).add;
@@ -607,23 +607,23 @@ EGlut {
       Routine {}
     });
 
-    OSCdef(\osc_pos_sigs, {|msg| 
-      var pos_sig1 = msg[3];
-      var pos_sig2 = msg[4];
-      var pos_sig3 = msg[5];
-      var pos_sig4 = msg[6];
+    OSCdef(\eglut_sigs_pos, {|msg| 
+      var sig_pos1 = msg[3];
+      var sig_pos2 = msg[4];
+      var sig_pos3 = msg[5];
+      var sig_pos4 = msg[6];
       if(
-        pos_sig1 != prev_pos_sig1 || 
-        pos_sig2 != prev_pos_sig2 || 
-        pos_sig3 != prev_pos_sig3 || 
-        pos_sig4 != prev_pos_sig4, {
-        lua_sender.sendMsg("/lua_fcm2dcorpus/grain_pos_sig",pos_sig1, pos_sig2, pos_sig3, pos_sig4);
+        sig_pos1 != prev_sig_pos1 || 
+        sig_pos2 != prev_sig_pos2 || 
+        sig_pos3 != prev_sig_pos3 || 
+        sig_pos4 != prev_sig_pos4, {
+        lua_sender.sendMsg("/lua_fcm2dcorpus/grain_sig_pos",sig_pos1, sig_pos2, sig_pos3, sig_pos4);
       });
-      prev_pos_sig1 = pos_sig1;
-      prev_pos_sig2 = pos_sig2;
-      prev_pos_sig3 = pos_sig3;
-      prev_pos_sig4 = pos_sig4;
-    }, "/osc_pos_sigs");
+      prev_sig_pos1 = sig_pos1;
+      prev_sig_pos2 = sig_pos2;
+      prev_sig_pos3 = sig_pos3;
+      prev_sig_pos4 = sig_pos4;
+    }, "/eglut_sigs_pos");
 
   }
 
