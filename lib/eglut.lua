@@ -2,9 +2,11 @@ local e={}
 
 divisions={1,2,4,6,8,12,16}
 division_names={"2 wn","wn","hn","hn-t","qn","qn-t","eighth"}
-param_list={"overtones","overtoneslfo","subharmonics","subharmonicslfo","sizelfo","densitylfo","speedlfo","volumelfo","spreadlfo","spread_sig_lfo","jitterlfo","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","remove_selected_gslice","selected_gslice","sample"}
+param_list={
+  "overtoneslfo","subharmonicslfo","sizelfo","densitylfo","speedlfo","volumelfo","spread_panlfo","spread_siglfo","jitterlfo",
+  "overtones","subharmonics","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread_pan","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","remove_selected_gslice","selected_gslice","sample"}
 param_list_delay={"delay_volume","delay_mod_freq","delay_mod_depth","delay_fdbk","delay_diff","delay_damp","delay_size","delay_time"}
-num_samples=1
+num_voices=1
 
 function e:init(waveform_loader)
   e.sample_selected_callback = waveform_loader
@@ -17,7 +19,7 @@ end
 function e:bang(scene, bangscope)
   bangscope = bangscope or 1
   if bangscope < 3 then
-    for i=1,num_samples do
+    for i=1,num_voices do
       for _,param_name in ipairs(param_list) do
         local p=params:lookup_param(i..param_name..scene)
         if p.t~=6 then p:bang() end
@@ -57,6 +59,61 @@ function e:update_gslices(voice, scene)
   e:rebuild_params()
 end
 
+-- lfo stuff
+ -- lfo refreshing
+ e.lfo_refresh=metro.init()
+ e.lfo_refresh.time=0.1
+ e.lfo_refresh.event=function()
+   e:update_lfos() -- use this metro to update lfos
+ end
+ e.lfo_refresh:start()
+
+local mod_parameters={
+  {id="jitter",range={15,200},lfo={32,64}},
+  {id="spread_pan",range={0,100},lfo={16,24}},
+  {id="volume",range={0,0.25},lfo={16,24}},
+  {id="speed",range={-0.05,0.05},lfo={16,24}},
+  {id="density",range={3,16},lfo={16,24}},
+  {id="spread_sig",range={0,500},lfo={16,24}},
+  {id="size",range={2,12},lfo={24,58}},
+  {id="subharmonics",range={0,1},lfo={24,70}},
+  {id="overtones",range={0,0.2},lfo={36,60}},
+}
+e.mod_vals={}
+
+for i=1,num_voices do
+  e.mod_vals[i]={}
+  for j,mod in ipairs(mod_parameters) do
+    local minmax=mod.range
+    local range=minmax
+    -- local center_val=(range[2]-range[1])/2
+    -- range={range[1]+(center_val-range[1])*math.random(0,100)/100,range[2]-(range[2]-center_val)*math.random(0,100)/100}
+    e.mod_vals[i][j]={id=mod.id,minmax=minmax,range=range,period=math.random(mod.lfo[1],mod.lfo[2]),offset=math.random()*30}
+  end
+end
+
+function e:update_lfos()
+  for i=1,num_voices do
+    if params:get(i.."play"..params:get(i.."scene"))==2 then
+      for j,k in ipairs(self.mod_vals[i]) do
+        if params:get(i..k.id.."lfo"..params:get(i.."scene"))==2 then
+          params:set(i..k.id..params:get(i.."scene"),util.clamp(util.linlin(-1,1,k.range[1],k.range[2],self:calculate_lfo(k.period,k.offset)),k.minmax[1],k.minmax[2]))
+        end
+      end
+    end
+  end
+end
+
+
+function e:calculate_lfo(period_in_beats,offset)
+  if period_in_beats==0 then
+    return 1
+  else
+    return math.sin(2*math.pi*clock.get_beats()/period_in_beats+offset)
+  end
+end
+
+-- param stuff
 function e:rebuild_params()
   if _menu.rebuild_params~=nil then
     _menu.rebuild_params()
@@ -65,9 +122,9 @@ end
 
 function e:setup_params()
   params:add_separator("granular")
-  params:add_number("selected_sample","selected sample",1,num_samples,1)
+  params:add_number("selected_sample","selected sample",1,num_voices,1)
   local old_volume={0.25,0.25,0.25,0.25}
-  for i=1,num_samples do
+  for i=1,num_voices do
     params:add_group("sample "..i,64)
     params:add_option(i.."scene","scene",{"a","b"},1)
     params:set_action(i.."scene",function(scene)
@@ -149,20 +206,20 @@ function e:setup_params()
 
       params:add_taper(i.."spread_sig"..scene,"spread sig",0,500,0,5,"ms")
       params:set_action(i.."spread_sig"..scene,function(value) engine.spread_sig(i,value/1000) end)
-      params:add_option(i.."spread_sig_lfo"..scene,"spread lfo",{"off","on"},1)
+      params:add_option(i.."spread_siglfo"..scene,"spread sig lfo",{"off","on"},1)
       
-      params:add_taper(i.."spread_sig_offset1"..scene,"spread offset 1",0,500,0,5,"ms")
+      params:add_taper(i.."spread_sig_offset1"..scene,"spread sig offset 1",0,500,0,5,"ms")
       params:set_action(i.."spread_sig_offset1"..scene,function(value) engine.spread_sig_offset1(i,value/1000) end)
       
-      params:add_taper(i.."spread_sig_offset2"..scene,"spread offset 2",0,500,0,5,"ms")
+      params:add_taper(i.."spread_sig_offset2"..scene,"spread sig offset 2",0,500,0,5,"ms")
       params:set_action(i.."spread_sig_offset2"..scene,function(value) engine.spread_sig_offset2(i,value/1000) end)
       
-      params:add_taper(i.."spread_sig_offset3"..scene,"spread offset 3",0,500,0,5,"ms")
+      params:add_taper(i.."spread_sig_offset3"..scene,"spread sig offset 3",0,500,0,5,"ms")
       params:set_action(i.."spread_sig_offset3"..scene,function(value) engine.spread_sig_offset3(i,value/1000) end)
       
       params:add_taper(i.."jitter"..scene,"jitter",0,500,0,5,"ms")
       params:set_action(i.."jitter"..scene,function(value) engine.jitter(i,value/1000) end)
-      params:add_option(i.."jitterlfo"..scene,"jitter lfo",{"off","on"},2)
+      params:add_option(i.."jitterlfo"..scene,"jitter lfo",{"off","on"},1)
 
       params:add_control(i.."density"..scene,"density",controlspec.new(1,40,"lin",1,12,"/beat",1/40))
       params:set_action(i.."density"..scene,function(value) engine.density(i,value/(clock.get_beat_sec())) end)
@@ -225,7 +282,7 @@ function e:setup_params()
       params:add_control(i.."cutoff"..scene,"filter cutoff",controlspec.new(20,20000,"exp",0,20000,"hz"))
       params:set_action(i.."cutoff"..scene,function(value) engine.cutoff(i,value) end)
 
-      params:add_control(i.."q"..scene,"filter rq",controlspec.new(0.01,1.0,"exp",0.01,1,"",0.01/1))
+      params:add_control(i.."q"..scene,"filter rq",controlspec.new(0.01,1.0,"exp",0.01,0.1,"",0.01/1))
       params:set_action(i.."q"..scene,function(value) engine.q(i,value) end)
 
       params:add_control(i.."send"..scene,"delay send",controlspec.new(0.0,1.0,"lin",0.01,0.2))
@@ -242,9 +299,9 @@ function e:setup_params()
       params:add_control(i.."pan"..scene,"pan",controlspec.new(-1,1,"lin",0.01,0,"",0.01/1))
       params:set_action(i.."pan"..scene,function(value) engine.pan(i,value) end)
 
-      params:add_taper(i.."spread"..scene,"spread",0,100,0,0,"%")
-      params:set_action(i.."spread"..scene,function(value) engine.spread(i,value/100) end)
-      params:add_option(i.."spreadlfo"..scene,"spread lfo",{"off","on"},2)
+      params:add_taper(i.."spread_pan"..scene,"spread pan",0,100,0,0,"%")
+      params:set_action(i.."spread_pan"..scene,function(value) engine.spread_pan(i,value/100) end)
+      params:add_option(i.."spread_panlfo"..scene,"spread pan lfo",{"off","on"},2)
 
       params:add_control(i.."subharmonics"..scene,"subharmonic vol",controlspec.new(0.00,1.00,"lin",0.01,0))
       params:set_action(i.."subharmonics"..scene,function(value) engine.subharmonics(i,value) end)
@@ -305,7 +362,7 @@ function e:setup_params()
   params:add_control("rec_fade","rec fade time",controlspec.new(0.0,1500,"lin",10,100,"ms",10/1500))
 
   -- hide scene 2 initially
-  for i=1,num_samples do
+  for i=1,num_voices do
     for _,param_name in ipairs(param_list) do
       params:hide(i..param_name.."2")
     end

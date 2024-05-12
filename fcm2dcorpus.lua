@@ -124,7 +124,13 @@ function on_transportslice_composed(path)
     loading_waveform = "transported"
     waveforms["transported"].load(path)    
     activate_waveform("transported")
-    print("transport slice waveform activated")
+    -- local file = path
+    -- local samplenum = 1
+    -- local scene = 1
+    -- clock.run(set_eglut_sample,file,samplenum,scene)
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/append_gslice",{})
+
+    print("transport slice waveform activated and eglut set")
   end
   -- end
 end
@@ -172,6 +178,7 @@ function osc.event(path,args,from)
     local gslices_str = args[1]
     gslices={}
     for slice in string.gmatch(gslices_str, '([^,]+)') do
+      print("insert slice",slice)
       table.insert(gslices,slice) 
     end
     local selected_sample = params:get("selected_sample")
@@ -180,7 +187,7 @@ function osc.event(path,args,from)
   elseif path == "/lua_fcm2dcorpus/grain_sig_pos" then
     granulated_sigs_pos = args
     if mode == "points generated" and selecting_file == false and norns.menu.status() == false then
-      screen_dirty = true
+      -- screen_dirty = true
     end
   elseif path == "/lua_fcm2dcorpus/transportslice_composed" then
     path = args[1]
@@ -196,15 +203,15 @@ function osc.event(path,args,from)
 end
 
 function set_eglut_sample(file,samplenum,scene)
-  print("set_eglut_sample: get slices",file,samplenum,scene)
-  loading_waveform = "granulated"
+  print("set_eglut_sample",file,samplenum,scene)
+  -- loading_waveform = "granulated"
   osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/get_gslices")
   clock.sleep(0.5)
   params:set(samplenum.."sample"..(scene),file,true)
   clock.sleep(0.1)
   params:set(samplenum.."scene",3-scene)
   params:set(samplenum.."scene",scene)
-  activate_waveform("granulated")
+  -- activate_waveform("granulated")
 end
 
 function load_json()
@@ -268,6 +275,7 @@ function setup_waveforms()
     })
   end
 end
+
 function setup_params()
   params:add_separator("waveforms")
   params:add_option("selected_waveform","waveform",{"-","-","-"})
@@ -310,7 +318,7 @@ function setup_params()
     osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/record_live",{duration})
   end)
   params:add_option("auto_analyze","auto analyze",{"off","on"},2)
-  params:add_control("max_sample_length","max sample length",controlspec.new(1,5,'lin',0.1,2,"min"))
+  params:add_control("max_sample_length","max sample length",controlspec.new(1,5,'lin',0.1,1.5,"min"))
   params:add_control("slice_threshold","slice threshold",controlspec.new(0,1,'lin',0.1,0.5))
   params:add_control("min_slice_length","min slice length",controlspec.new(0,100,'lin',0.1,2,"",0.001))
   params:add_control("slice_volume","slice volume",controlspec.new(0,1,'lin',0.1,1))
@@ -356,10 +364,11 @@ function setup_params()
 end
 
 function enc_debouncer(callback)
-  local debounce_time = 0.5
+  local debounce_time = 0.1
   if enc_debouncing == false then
     enc_debouncing = true
     clock.sleep(debounce_time)
+    print("debounced")
     callback()
     enc_debouncing = false
   end
@@ -376,6 +385,7 @@ function init()
   create_audio_folder()
   setup_waveforms()
   setup_params()
+  params:set("transport_volume",0.2)
   
   
 
@@ -520,11 +530,14 @@ function redraw()
         if waveforms["composed"].waveform_samples then
           waveforms["composed"]:redraw({composed_sig_pos})
         end
-        if waveforms["granulated"].waveform_samples then
-          waveforms["granulated"]:redraw(granulated_sigs_pos,gslices)
-        end
+        -- if waveforms["granulated"].waveform_samples then
+        --   waveforms["granulated"]:redraw(granulated_sigs_pos,gslices)
+        -- end
         if waveforms["transported"].waveform_samples then
           waveforms["transported"]:redraw({transport_sig_pos})
+          if gslices and granulated_sigs_pos then    
+            waveforms["transported"]:redraw(granulated_sigs_pos,gslices)
+          end
         end
   
         for k,v in pairs(points_data) do 

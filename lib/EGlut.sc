@@ -83,7 +83,7 @@ EGlut {
     SynthDef(\synth, {
       arg out, effectBus, phase_out, level_out, buf, buf2,
       gate=0, pos=0, buf_pos_start=0, buf_pos_end=1, speed=1, jitter=0, spread_sig=0, voice_pan=0,	
-      size=0.1, density=20, pitch=1, spread=0, gain=1, envscale=1,
+      size=0.1, density=20, pitch=1, spread_pan=0, gain=1, envscale=1,
       freeze=0, t_reset_pos=0, cutoff=20000, q, mode=0, send=0,
       subharmonics=0,overtones=0, gr_envbuf = -1,
       spread_sig_offset1=0, spread_sig_offset2=0, spread_sig_offset3=0;
@@ -107,7 +107,7 @@ EGlut {
       var overtone_vol=overtones/(1.0+subharmonics+overtones);
 
       density = Lag.kr(density);
-      spread = Lag.kr(spread);
+      spread_pan = Lag.kr(spread_pan);
       size = Lag.kr(size);
       cutoff = Lag.kr(cutoff);
       q = Lag.kr(q);
@@ -119,10 +119,10 @@ EGlut {
 
       pan_sig = TRand.kr(trig: grain_trig,
         lo: -1,
-        hi: (2*spread)-1);
+        hi: (2*spread_pan)-1);
 
       pan_sig2 = TRand.kr(trig: grain_trig,
-        lo: 1-(2*spread),
+        lo: 1-(2*spread_pan),
         hi: 1);
 
       jitter_sig = TRand.kr(trig: grain_trig,
@@ -364,7 +364,7 @@ EGlut {
       // sig = CombL.ar(in: sig, maxdelaytime: 1, delaytime: delayTime, decaytime: damp, mul: 1.0, add: 0.0);
 
       // sig = Greyhole.ar(sig, delayTime, damp, size, diff, feedback, modDepth, modFreq);
-      Out.ar(out, sig * delayVol);
+      Out.ar(out, sig * 4 * delayVol);
     }).add;
 
     s.sync;
@@ -509,9 +509,9 @@ EGlut {
       gvoices[voice].set(\pitch, msg[2]);
     });
 
-    thisEngine.addCommand("spread", "if", { arg msg;
+    thisEngine.addCommand("spread_pan", "if", { arg msg;
       var voice = msg[1] - 1;
-      gvoices[voice].set(\spread, msg[2]);
+      gvoices[voice].set(\spread_pan, msg[2]);
     });
 
     thisEngine.addCommand("gain", "if", { arg msg;
