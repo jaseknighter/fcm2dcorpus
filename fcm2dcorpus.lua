@@ -66,7 +66,6 @@ local transport_gate = 1
 local enc_debouncing=false
 
 
-gslices = {}
 waveforms = {}
 waveform_names = {"composed","granulated","transported"}
 waveforms_captured = {0,0,0}
@@ -75,7 +74,7 @@ local loading_waveform = nil
 local max_analysis_length = 60 * 3
 local gslice_generated=false
 
-local composed_sig_pos = nil
+composed_sig_pos = nil
 local granulated_sigs_pos = nil
 local transport_sig_pos = nil
 --------------------------
@@ -84,15 +83,17 @@ local transport_sig_pos = nil
 local script_osc_event = osc.event
 
 function activate_waveform(waveform)
+  print("activate",waveform)
   if waveforms[waveform].active == true then return end
 
   for i,v in pairs(waveform_names) do
     if waveform == v then
+      print(v)
       waveforms_captured[i] = 1
       p=params:lookup_param("selected_waveform")
       p.options[i] = waveform_names[i]
       _menu.rebuild_params()
-      params:set("selected_waveform",i)
+      -- params:set("selected_waveform",i)
     end
   end
   screen_dirty = true
@@ -124,15 +125,17 @@ function on_transportslice_composed(path)
     loading_waveform = "transported"
     waveforms["transported"].load(path)    
     activate_waveform("transported")
-    -- local file = path
-    -- local samplenum = 1
-    -- local scene = 1
-    -- clock.run(set_eglut_sample,file,samplenum,scene)
-    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/append_gslice",{})
-
     print("transport slice waveform activated and eglut set")
   end
-  -- end
+end
+
+function set_eglut_sample(file,samplenum,scene)
+  print("set_eglut_sample",file,samplenum,scene)
+  params:set(samplenum.."sample"..(scene),file,true)
+  clock.sleep(0.1)
+  params:set(samplenum.."scene",3-scene)
+  params:set(samplenum.."scene",scene)
+  -- activate_waveform("granulated")
 end
 
 function osc.event(path,args,from)
@@ -166,33 +169,18 @@ function osc.event(path,args,from)
     previous_y = points_data[previous_slice_id][2]
     previous_x = composition_left + math.ceil(previous_x*(127-composition_left))
     previous_y = composition_top + math.ceil(previous_y*(64-composition_top))
-  elseif path == "/lua_fcm2dcorpus/gslicebuf_composed" then
-    gslice_generated=true
-  elseif path == "/lua_fcm2dcorpus/gslicebuf_appended" then
-    print("gslicebuf_appended")
-    local file = args[1]
-    local samplenum = 1
-    local scene = 1
-    clock.run(set_eglut_sample,file,samplenum,scene)
-  elseif path == "/lua_fcm2dcorpus/set_gslices" then
-    local gslices_str = args[1]
-    gslices={}
-    for slice in string.gmatch(gslices_str, '([^,]+)') do
-      print("insert slice",slice)
-      table.insert(gslices,slice) 
-    end
-    local selected_sample = params:get("selected_sample")
-    local selected_scene = params:get(selected_sample.."scene")
-    eglut:update_gslices(selected_sample,selected_scene)
   elseif path == "/lua_fcm2dcorpus/grain_sig_pos" then
     granulated_sigs_pos = args
-    if mode == "points generated" and selecting_file == false and norns.menu.status() == false then
-      -- screen_dirty = true
+    -- if mode == "granulated" and selecting_file == false and norns.menu.status() == false then
+    if mode == "granulated" and norns.menu.status() == false then
+      screen_dirty = true
     end
   elseif path == "/lua_fcm2dcorpus/transportslice_composed" then
     path = args[1]
     print("transportslice_composed",path)
     clock.run(on_transportslice_composed,path)
+    clock.run(set_eglut_sample,path,1,1)
+
   elseif path == "/lua_fcm2dcorpus/transport_sig_pos" then
     transport_sig_pos = args[1]
     -- print("transport_sig_pos",transport_sig_pos)
@@ -200,18 +188,6 @@ function osc.event(path,args,from)
       screen_dirty = true
     end
   end
-end
-
-function set_eglut_sample(file,samplenum,scene)
-  print("set_eglut_sample",file,samplenum,scene)
-  -- loading_waveform = "granulated"
-  osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/get_gslices")
-  clock.sleep(0.5)
-  params:set(samplenum.."sample"..(scene),file,true)
-  clock.sleep(0.1)
-  params:set(samplenum.."scene",3-scene)
-  params:set(samplenum.."scene",scene)
-  -- activate_waveform("granulated")
 end
 
 function load_json()
@@ -306,6 +282,7 @@ function setup_params()
     cursor_y = util.clamp(x*64,composition_top,64)
     if alt_key == false then play_slice() end
   end)
+  params:add_group("slice",7)
   params:add_trigger("select_folder_file", "select folder/file" )
   params:set_action("select_folder_file", function(x) selecting_file = true fileselect.enter(_path.audio, set_audio_path) end)
   params:add_trigger("record_live", "record live")
@@ -322,6 +299,7 @@ function setup_params()
   params:add_control("slice_threshold","slice threshold",controlspec.new(0,1,'lin',0.1,0.5))
   params:add_control("min_slice_length","min slice length",controlspec.new(0,100,'lin',0.1,2,"",0.001))
   params:add_control("slice_volume","slice volume",controlspec.new(0,1,'lin',0.1,1))
+  params:add_group("transport",5)
   params:add_control("transport_volume","transport volume",controlspec.new(0,1,'lin',0.1,1))
   params:set_action("transport_volume", function(vol)         
     osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/set_transport_volume",{vol}) 
@@ -368,10 +346,19 @@ function enc_debouncer(callback)
   if enc_debouncing == false then
     enc_debouncing = true
     clock.sleep(debounce_time)
-    print("debounced")
     callback()
     enc_debouncing = false
   end
+end
+
+function on_eglut_file_loaded(file)
+  loading_waveform = "granulated"
+  if mode~="points generated" then
+    mode="granulated"
+  end
+  print("loading_waveform",loading_waveform)
+  activate_waveform("granulated")
+  waveforms["granulated"].load(file)
 end
 
 function init()
@@ -387,10 +374,9 @@ function init()
   setup_params()
   params:set("transport_volume",0.2)
   
-  
-
-  eglut:init(waveforms.granulated.load)
+  eglut:init(on_eglut_file_loaded)
   eglut:setup_params()
+
   -- osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/init")
 
   screen.aa(0)
@@ -447,8 +433,8 @@ function key(k,z)
       local min_slice_length = params:get('min_slice_length')
       osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/analyze_2dcorpus",{slice_threshold,min_slice_length})
     elseif gslice_generated == true then
-        print("append gslice")
-        osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/append_gslice",{})
+        print("append gslice????")
+        -- osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/append_gslice",{})
     end      
   end
 end
@@ -522,6 +508,7 @@ function redraw()
     
     -- set data points
     if mode == "points generated" then
+      local selected_waveform = params:get("selected_waveform")
       if points_data then
         if slices_analyzed then
           slices_analyzed = nil
@@ -530,14 +517,13 @@ function redraw()
         if waveforms["composed"].waveform_samples then
           waveforms["composed"]:redraw({composed_sig_pos})
         end
-        -- if waveforms["granulated"].waveform_samples then
-        --   waveforms["granulated"]:redraw(granulated_sigs_pos,gslices)
-        -- end
-        if waveforms["transported"].waveform_samples then
+        if selected_waveform == 2 and waveforms["granulated"].waveform_samples then
+          waveforms["granulated"]:redraw(granulated_sigs_pos,gslices)
+        elseif selected_waveform == 3 and waveforms["transported"].waveform_samples then
           waveforms["transported"]:redraw({transport_sig_pos})
-          if gslices and granulated_sigs_pos then    
-            waveforms["transported"]:redraw(granulated_sigs_pos,gslices)
-          end
+          -- if granulated_sigs_pos then    
+          --   waveforms["transported"]:redraw(granulated_sigs_pos)
+          -- end
         end
   
         for k,v in pairs(points_data) do 
@@ -567,6 +553,10 @@ function redraw()
       screen.move(cursor_x+4,cursor_y)
       screen.circle(cursor_x,cursor_y,5)
       screen.stroke()
+    elseif mode == "granulated" then
+      if granulated_sigs_pos then    
+        waveforms["granulated"]:redraw(granulated_sigs_pos)
+      end
     elseif mode == "start" then
       screen.move(composition_left,composition_top-6)
       screen.text("k2 to select folder/file...")

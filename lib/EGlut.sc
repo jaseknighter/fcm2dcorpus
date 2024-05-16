@@ -161,7 +161,7 @@ EGlut {
             pan: pan_sig,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:96,
+            maxGrains:96,//96,
             mul:main_vol,
           )+
           GrainBuf.ar(
@@ -174,7 +174,7 @@ EGlut {
             pan: pan_sig2,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:96,
+            maxGrains:96,//96,
             mul:main_vol,
           )+
 
@@ -189,7 +189,7 @@ EGlut {
             pan: pan_sig,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:72,
+            maxGrains:24,//72,
             mul:main_vol*0.5,
           )+
           GrainBuf.ar(
@@ -202,7 +202,7 @@ EGlut {
             pan: pan_sig2,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:72,
+            maxGrains:24,//72,
             mul:main_vol*0.5,
           )+
         GrainBuf.ar(
@@ -215,7 +215,7 @@ EGlut {
             pan: pan_sig,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:32,
+            maxGrains:24,//32,
             mul:main_vol*0.5,
           )+
           GrainBuf.ar(
@@ -228,7 +228,7 @@ EGlut {
             pan: pan_sig2,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:32,
+            maxGrains:24,//32,
             mul:main_vol*0.5,
           )+
         GrainBuf.ar(
@@ -241,7 +241,7 @@ EGlut {
             pan: pan_sig,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:24,
+            maxGrains:24,//24,
             mul:main_vol*0.5,
           )+
           GrainBuf.ar(
@@ -254,7 +254,7 @@ EGlut {
             pan: pan_sig2,
             rate:pitch,
             envbufnum:gr_envbuf,
-            maxGrains:24,
+            maxGrains:24,//24,
             mul:main_vol*0.5,
           )
 
@@ -271,7 +271,7 @@ EGlut {
             pan: pan_sig,
             rate:pitch/2,
             envbufnum:gr_envbuf,
-            maxGrains:72,
+            maxGrains:24,//72,
             mul:subharmonic_vol,
           )+
           GrainBuf.ar(
@@ -284,7 +284,7 @@ EGlut {
             pan: pan_sig2,
             rate:pitch/2,
             envbufnum:gr_envbuf,
-            maxGrains:72,
+            maxGrains:24,//72,
             mul:subharmonic_vol,
           )+
         GrainBuf.ar(
@@ -297,7 +297,7 @@ EGlut {
             pan: pan_sig,
             rate:pitch*2,
             envbufnum:gr_envbuf,
-            maxGrains:32,
+            maxGrains:24,//32,
             mul:overtone_vol*0.7,
           )+
           GrainBuf.ar(
@@ -310,7 +310,7 @@ EGlut {
             pan: pan_sig2,
             rate:pitch*2,
             envbufnum:gr_envbuf,
-            maxGrains:32,
+            maxGrains:24,//32,
             mul:overtone_vol*0.7,
           )+
         GrainBuf.ar(
@@ -323,7 +323,7 @@ EGlut {
             pan: pan_sig,
             rate:pitch*4,
             envbufnum:gr_envbuf,
-            maxGrains:24,
+            maxGrains:24,//24,
             mul:overtone_vol*0.3,
           )+
           GrainBuf.ar(
@@ -336,11 +336,11 @@ EGlut {
             pan: pan_sig2,
             rate:pitch*4,
             envbufnum:gr_envbuf,
-            maxGrains:24,
+            maxGrains:24,//24,
             mul:overtone_vol*0.3,
           )
           ;
-            // maxGrains:[128,256,64,128,64]/2,
+            // maxGrains:24,//[128,256,64,128,64]/2,
             // mul:[0.125,0.625,0.05,0.15,0.05]/2,
       
       
@@ -363,7 +363,7 @@ EGlut {
       var sig = In.ar(in, 2);
       // sig = CombL.ar(in: sig, maxdelaytime: 1, delaytime: delayTime, decaytime: damp, mul: 1.0, add: 0.0);
 
-      // sig = Greyhole.ar(sig, delayTime, damp, size, diff, feedback, modDepth, modFreq);
+      sig = Greyhole.ar(sig, delayTime, damp, size, diff, feedback, modDepth, modFreq);
       Out.ar(out, sig * 4 * delayVol);
     }).add;
 

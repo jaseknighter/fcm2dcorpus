@@ -1,15 +1,41 @@
 local e={}
-
+e.inited = false
 divisions={1,2,4,6,8,12,16}
 division_names={"2 wn","wn","hn","hn-t","qn","qn-t","eighth"}
 param_list={
-  "overtoneslfo","subharmonicslfo","sizelfo","densitylfo","speedlfo","volumelfo","spread_panlfo","spread_siglfo","jitterlfo",
-  "overtones","subharmonics","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread_pan","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","remove_selected_gslice","selected_gslice","sample"}
+  "lfos","param_value","config_lfo","config_lfo_status",
+  "lfo_period","lfo_range_min_number","lfo_range_min_control","lfo_range_max_number","lfo_range_max_control","grain_params",
+  "overtoneslfo","subharmonicslfo","cutofflfo","sizelfo","densitylfo","speedlfo","volumelfo","spread_panlfo","spread_siglfo","jitterlfo",
+  "overtones","subharmonics","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread_pan","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","sample"}
 param_list_delay={"delay_volume","delay_mod_freq","delay_mod_depth","delay_fdbk","delay_diff","delay_damp","delay_size","delay_time"}
 num_voices=1
+num_scenes=2
 
-function e:init(waveform_loader)
-  e.sample_selected_callback = waveform_loader
+-- here's a version that handles recursive tables here:
+--  http://lua-users.org/wiki/CopyTable
+function deep_copy(orig, copies)
+  copies = copies or {}
+  local orig_type = type(orig)
+  local copy
+  if orig_type == 'table' then
+      if copies[orig] then
+          copy = copies[orig]
+      else
+          copy = {}
+          copies[orig] = copy
+          for orig_key, orig_value in next, orig, nil do
+              copy[deep_copy(orig_key, copies)] = deep_copy(orig_value, copies)
+          end
+          setmetatable(copy, deep_copy(getmetatable(orig), copies))
+      end
+  else -- number, string, boolean, etc
+      copy = orig
+  end
+  return copy
+end
+
+function e:init(sample_selected_callback)
+  e.sample_selected_callback = sample_selected_callback
 end
 
 function e:on_sample_selected(file)
@@ -24,8 +50,8 @@ function e:bang(scene, bangscope)
         local p=params:lookup_param(i..param_name..scene)
         if p.t~=6 then p:bang() end
       end
-      local p=params:lookup_param(i.."pattern"..scene)
-      p:bang()
+      -- local p=params:lookup_param(i.."pattern"..scene)
+      -- p:bang()
     end
   end
   if bangscope ~= 2 then
@@ -45,59 +71,80 @@ function e:get_gr_env_values(voice, scene)
   return {attack_level, attack_time, decay_time, attack_shape, decay_shape}
 end
 
-function e:update_gslices(voice, scene)
-  p=params:lookup_param(voice.."selected_gslice"..scene)
-  if #gslices < 3 then
-    params:hide(voice.."selected_gslice"..scene)
-    params:hide(voice.."remove_selected_gslice"..scene)
-  else
-    p.max=math.floor((#gslices+1)/2)
-    if p.value > p.max then p.value=p.max end
-    params:show(voice.."selected_gslice"..scene)
-    params:show(voice.."remove_selected_gslice"..scene)
-  end
-  e:rebuild_params()
+-- lfo stuff
+
+-- lfo refreshing
+e.lfo_refresh=metro.init()
+e.lfo_refresh.time=0.1
+e.lfo_refresh.event=function()
+  e:update_lfos() -- use this metro to update lfos
+end
+ 
+mod_parameters={
+  {p_type="control",id="size",name="size",range={0.2,4,0.2,4},lfo=24/58},
+  {p_type="number",id="density",name="density",range={3,16,3,16},lfo=16/24},
+  {p_type="control",id="speed",name="speed",range={-2.0,2.0,-2.0,2.0},lfo=16/24},
+  {p_type="number",id="jitter",name="jitter",range={15,200,15,200},lfo=32/64},
+  {p_type="control",id="volume",name="volume",range={0,1,0,1},lfo=16/24},
+  {p_type="number",id="spread_pan",name="spread pan",range={0,100,0,100},lfo=16/24},
+  {p_type="number",id="spread_sig",name="spread sig",range={0,500,0,500},lfo=16/24},
+  {p_type="number",id="cutoff",name="filter cutoff",range={500,2000,500,2000},lfo=16/24},
+  {p_type="control",id="subharmonics",name="subharmonics",range={0,1,0,1},lfo=24/70},
+  {p_type="control",id="overtones",name="overtones",range={0,0.2,0,0.2},lfo=36/60},
+}
+
+
+mod_param_names={}
+for i,mod in ipairs(mod_parameters) do
+  table.insert(mod_param_names,mod.name)
 end
 
--- lfo stuff
- -- lfo refreshing
- e.lfo_refresh=metro.init()
- e.lfo_refresh.time=0.1
- e.lfo_refresh.event=function()
-   e:update_lfos() -- use this metro to update lfos
- end
- e.lfo_refresh:start()
-
-local mod_parameters={
-  {id="jitter",range={15,200},lfo={32,64}},
-  {id="spread_pan",range={0,100},lfo={16,24}},
-  {id="volume",range={0,0.25},lfo={16,24}},
-  {id="speed",range={-0.05,0.05},lfo={16,24}},
-  {id="density",range={3,16},lfo={16,24}},
-  {id="spread_sig",range={0,500},lfo={16,24}},
-  {id="size",range={2,12},lfo={24,58}},
-  {id="subharmonics",range={0,1},lfo={24,70}},
-  {id="overtones",range={0,0.2},lfo={36,60}},
-}
-e.mod_vals={}
+e.mod_param_vals={}
+e.mod_params_dyn={}
+e.active_mod_param_ix={}
 
 for i=1,num_voices do
-  e.mod_vals[i]={}
-  for j,mod in ipairs(mod_parameters) do
-    local minmax=mod.range
-    local range=minmax
-    -- local center_val=(range[2]-range[1])/2
-    -- range={range[1]+(center_val-range[1])*math.random(0,100)/100,range[2]-(range[2]-center_val)*math.random(0,100)/100}
-    e.mod_vals[i][j]={id=mod.id,minmax=minmax,range=range,period=math.random(mod.lfo[1],mod.lfo[2]),offset=math.random()*30}
+  e.mod_params_dyn[i]={}
+  e.active_mod_param_ix[i]={}
+  for j=1,num_scenes do
+    e.active_mod_param_ix[i][j]=1
+    e.mod_params_dyn[i][j]=deep_copy(mod_parameters)
   end
 end
+dyn=e.mod_params_dyn
 
 function e:update_lfos()
   for i=1,num_voices do
-    if params:get(i.."play"..params:get(i.."scene"))==2 then
-      for j,k in ipairs(self.mod_vals[i]) do
-        if params:get(i..k.id.."lfo"..params:get(i.."scene"))==2 then
-          params:set(i..k.id..params:get(i.."scene"),util.clamp(util.linlin(-1,1,k.range[1],k.range[2],self:calculate_lfo(k.period,k.offset)),k.minmax[1],k.minmax[2]))
+    e.mod_param_vals[i]={}
+    for j=1,num_scenes do
+      e.mod_param_vals[i][j]={}
+      for k,mod in ipairs(e.mod_params_dyn[i][j]) do
+        local range={mod.range[3],mod.range[4]}
+        local period=params:get(i.."lfo_period"..j)
+        e.mod_param_vals[i][j][k]={id=mod.id,minmax=minmax,range=range,period=period,offset=1}--math.random()*30}
+
+        local active_ix=e.active_mod_param_ix[i][j]
+        if k==active_ix then
+          local lfo_val = params:get(i..mod.id..j)
+          params:set(i.."param_value"..j,lfo_val)
+        end
+      end
+    end
+    local scene=params:get(i.."scene")
+    if params:get(i.."play"..scene)==2 then
+      for j,k in ipairs(e.mod_param_vals[i][scene]) do
+        if params:get(i..k.id.."lfo"..scene)==2 then
+          local lfo_raw_val=self:calculate_lfo(k.period,k.offset)
+          local lfo_scaled_val=util.clamp(
+            util.linlin(
+              -1,1,
+              k.range[1],
+              k.range[2],
+              lfo_raw_val
+            ), 
+            k.range[1],k.range[2]
+          )
+          params:set(i..k.id..scene,lfo_scaled_val)
         end
       end
     end
@@ -109,7 +156,8 @@ function e:calculate_lfo(period_in_beats,offset)
   if period_in_beats==0 then
     return 1
   else
-    return math.sin(2*math.pi*clock.get_beats()/period_in_beats+offset)
+    local lfo_calc=math.sin(2*math.pi*clock.get_beats()/period_in_beats+offset)
+    return lfo_calc
   end
 end
 
@@ -122,20 +170,33 @@ end
 
 function e:setup_params()
   params:add_separator("granular")
-  params:add_number("selected_sample","selected sample",1,num_voices,1)
   local old_volume={0.25,0.25,0.25,0.25}
   for i=1,num_voices do
-    params:add_group("sample "..i,64)
+    params:add_group("sample "..i,(#param_list*2)-2)
     params:add_option(i.."scene","scene",{"a","b"},1)
     params:set_action(i.."scene",function(scene)
-      for _,param_name in ipairs(param_list) do
-        e:update_gslices(i, scene)
-        params:hide(i..param_name..(3-scene))
-        params:show(i..param_name..scene)
-        local p=params:lookup_param(i..param_name..scene)
+      for _,param_id in ipairs(param_list) do
+        params:hide(i..param_id..(3-scene))
+        params:show(i..param_id..scene)
+        -- local p=params:lookup_param(i..param_id..scene)
         -- p:bang()
+        local lfo_ix = e.active_mod_param_ix[i][scene]
+        local lfo = mod_parameters[lfo_ix]
+        if lfo.p_type=="number" then
+          params:hide(i.."lfo_range_min_control"..scene)
+          params:hide(i.."lfo_range_max_control"..scene)
+        else
+          params:hide(i.."lfo_range_min_number"..scene)
+          params:hide(i.."lfo_range_max_number"..scene)
+        end
+
+        -- e:rebuild_params()
       end
+
+      -- is this one needed????
       e:bang(scene)
+
+      
       -- local p=params:lookup_param(i.."pattern"..scene)
       -- p:bang()
       -- if params:get(i.."pattern"..scene)=="" or params:get(i.."pattern"..scene)=="[]" then
@@ -146,7 +207,7 @@ function e:setup_params()
     for scene=1,2 do
       params:add_file(i.."sample"..scene,"sample")
       params:set_action(i.."sample"..scene,function(file)
-        print("sample "..file)
+        print("sample ",i,scene,file)
         if file~="-" then
           -- clock.run(load_waveform,file)
           e:on_sample_selected(file)
@@ -160,17 +221,165 @@ function e:setup_params()
         end
       end)
 
-      params:add_number(i.."selected_gslice"..scene,"selected slice",1,1,1)
-      params:set_action(i.."selected_gslice"..scene,function(slice) print("slice",slice) end)
-      params:add_trigger(i.."remove_selected_gslice"..scene,"remove selected slice")
-      params:set_action(i.."remove_selected_gslice"..scene,function() 
-        local selected_gslice = params:get(i.."selected_gslice"..scene)
-        local slice_start = gslices[(selected_gslice*2)-1]
-        local slice_end = gslices[selected_gslice*2]
-        print("remove")
-        osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/remove_selected_gslice",{i,selected_gslice-1,slice_start,slice_end})
+
+      params:add_separator(i.."lfos"..scene,"lfos")
+      params:add_option(i.."config_lfo"..scene,"lfo name",mod_param_names,1)
+      params:set_action(i.."config_lfo"..scene,function(value) 
+        e.active_mod_param_ix[i][scene] = value
+        local range_min, range_max
+        local mod_type=mod_parameters[value].p_type
+        local range_min_val = e.mod_params_dyn[i][scene][value].range[1]
+        local range_max_val = e.mod_params_dyn[i][scene][value].range[2]
+        if mod_type == "number" then 
+          params:show(i.."lfo_range_min_number"..scene) 
+          params:show(i.."lfo_range_max_number"..scene) 
+          params:hide(i.."lfo_range_min_control"..scene)
+          params:hide(i.."lfo_range_max_control"..scene)
+          
+          range_min=params:lookup_param(i.."lfo_range_min_number"..scene)
+          range_max=params:lookup_param(i.."lfo_range_max_number"..scene)
+          
+          range_min.name=mod_param_names[value].." range min"
+          range_max.name=mod_param_names[value].." range max"
+          print(i,scene,value,range_min.min,range_min.max)
+          range_min.min=range_min_val
+          range_min.max=range_max_val
+          range_max.min=range_min_val
+          range_max.max=range_max_val    
+        else
+          params:show(i.."lfo_range_min_control"..scene) 
+          params:hide(i.."lfo_range_min_number"..scene)
+          params:show(i.."lfo_range_max_control"..scene) 
+          params:hide(i.."lfo_range_max_number"..scene)
+          
+          range_min=params:lookup_param(i.."lfo_range_min_control"..scene)
+          range_max=params:lookup_param(i.."lfo_range_max_control"..scene)
+          range_min.name=mod_param_names[value].." range min"
+          range_max.name=mod_param_names[value].." range max"
+          
+          range_min.controlspec.minval=range_min_val
+          range_min.controlspec.maxval=range_max_val
+          range_max.controlspec.minval=range_min_val
+          range_max.controlspec.maxval=range_max_val
+        end
+        local min_range_default = e.mod_params_dyn[i][scene][value].range[3]
+        -- min_range_default = min_range_default == nil and e.mod_params_dyn[i][scene][value].range[1] or min_range_default
+        if mod_type == "number" then 
+          params:set(i.."lfo_range_min_number"..scene,min_range_default)
+        else
+          params:set(i.."lfo_range_min_control"..scene,min_range_default)
+        end
+
+        local max_range_default = e.mod_params_dyn[i][scene][value].range[4]
+        -- max_range_default = max_range_default == nil and e.mod_params_dyn[i][scene][value].range[2] or max_range_default
+        
+        if mod_type == "number" then 
+          params:set(i.."lfo_range_max_number"..scene,max_range_default)
+        else
+          params:set(i.."lfo_range_max_control"..scene,max_range_default)
+        end
+
+
+
+        local value_param=params:lookup_param(i.."param_value"..scene)
+        local status_param=params:lookup_param(i.."config_lfo_status"..scene)
+        local period_param=params:lookup_param(i.."lfo_period"..scene)
+        value_param.name=mod_param_names[value].." value"
+        status_param.name=mod_param_names[value].." lfo status"
+        period_param.name=mod_param_names[value].." lfo period"
+        
+        print(i,scene,value,"min_range_default,max_range_default",min_range_default,max_range_default)
+        local selected_lfo=i..mod_parameters[e.active_mod_param_ix[i][scene]].id.."lfo"..scene
+        params:set(i.."config_lfo_status"..scene,params:get(selected_lfo))
+        
+        local lfo_period=e.mod_params_dyn[i][scene][value].lfo
+        params:set(i.."lfo_period"..scene,lfo_period)
+        e:rebuild_params()
+      end)
+      params:add_control(i.."param_value"..scene,mod_param_names[1].." value",controlspec.new(-100000,100000))
+      
+      params:add_option(i.."config_lfo_status"..scene,mod_param_names[1].." lfo status",{"off","on"},1)
+      params:set_action(i.."config_lfo_status"..scene,function(value) 
+        params:set(i..mod_parameters[e.active_mod_param_ix[i][scene]].id.."lfo"..scene,value)
       end)
       
+      params:add_number(i.."lfo_period"..scene,mod_param_names[1].." lfo period",1,200,50)
+      params:set_action(i.."lfo_period"..scene,function(value) 
+        local ix = e.active_mod_param_ix[i][scene];
+        local dyn_mod_param = e.mod_params_dyn[i][scene][ix]
+        dyn_mod_param.lfo=value
+      end)
+      params:add_number(i.."lfo_range_min_number"..scene,mod_param_names[1].." range min",15,200,15)
+      params:set_action(i.."lfo_range_min_number"..scene,function(value) 
+        local min=i.."lfo_range_min_number"..scene
+        local max=i.."lfo_range_max_number"..scene
+        local max_val=params:get(max)
+        if value > max_val then
+          params:set(min,max_val)
+        end
+        local ix = e.active_mod_param_ix[i][scene];
+        local dyn_mod_param = e.mod_params_dyn[i][scene][ix]
+        if e.inited == true then
+          dyn_mod_param.range[3]=value 
+        end
+      end)
+      
+      params:add_number(i.."lfo_range_max_number"..scene,mod_param_names[1].." range max",15,200,200)
+      params:set_action(i.."lfo_range_max_number"..scene,function(value) 
+        local min=i.."lfo_range_min_control"..scene
+        local max=i.."lfo_range_max_control"..scene
+        local min_val=params:get(min)
+        if value < min_val then
+          params:set(max,min_val)
+        end
+
+        local ix = e.active_mod_param_ix[i][scene];
+        local dyn_mod_param = e.mod_params_dyn[i][scene][ix]
+        if e.inited == true then 
+          print("set max",i,scene,value)
+          dyn_mod_param.range[4]=value 
+        end
+      end)
+
+
+      params:add_control(i.."lfo_range_min_control"..scene,mod_param_names[1].." range min",controlspec.new(0,0.25,"lin",0.01,0))
+      params:set_action(i.."lfo_range_min_control"..scene,function(value) 
+        local min=i.."lfo_range_min_control"..scene
+        local max=i.."lfo_range_max_control"..scene
+        local max_val=params:get(max)
+        if value > max_val then
+          params:set(min,max_val)
+        end
+
+        local ix = e.active_mod_param_ix[i][scene];
+        local dyn_mod_param = e.mod_params_dyn[i][scene][ix]
+        if e.inited == true then
+          dyn_mod_param.range[3]=value
+        end
+
+      end)
+      
+      params:add_control(i.."lfo_range_max_control"..scene,mod_param_names[1].." range max",controlspec.new(0,0.25,"lin",0.01,0))
+      params:set_action(i.."lfo_range_max_control"..scene,function(value) 
+        local min=i.."lfo_range_min_control"..scene
+        local max=i.."lfo_range_max_control"..scene
+        local min_val=params:get(min)
+        if value < min_val then
+          params:set(max,min_val)
+        end
+
+        local ix = e.active_mod_param_ix[i][scene];
+        local dyn_mod_param = e.mod_params_dyn[i][scene][ix]
+        if e.inited == true then
+          dyn_mod_param.range[4]=value
+        end
+      end)
+      
+
+      params:add_separator(i.."grain_params"..scene,"param values")
+      
+
+
       params:add_option(i.."play"..scene,"play",{"off","on"},1)
       -- params:add_option(i.."play"..scene,"play",{"off","on"},1)
       params:set_action(i.."play"..scene,function(x) engine.gate(i,x-1) end)
@@ -281,7 +490,8 @@ function e:setup_params()
       
       params:add_control(i.."cutoff"..scene,"filter cutoff",controlspec.new(20,20000,"exp",0,20000,"hz"))
       params:set_action(i.."cutoff"..scene,function(value) engine.cutoff(i,value) end)
-
+      params:add_option(i.."cutofflfo"..scene,"filter cutoff lfo",{"off","on"},1)
+      
       params:add_control(i.."q"..scene,"filter rq",controlspec.new(0.01,1.0,"exp",0.01,0.1,"",0.01/1))
       params:set_action(i.."q"..scene,function(value) engine.q(i,value) end)
 
@@ -311,13 +521,13 @@ function e:setup_params()
       params:set_action(i.."overtones"..scene,function(value) engine.overtones(i,value) end)
       params:add_option(i.."overtoneslfo"..scene,"overtone lfo",{"off","on"},1)
 
-      params:add_text(i.."pattern"..scene,"pattern","")
-      params:hide(i.."pattern"..scene)
-      params:set_action(i.."pattern"..scene,function(value)
+      -- params:add_text(i.."pattern"..scene,"pattern","")
+      -- params:hide(i.."pattern"..scene)
+      -- params:set_action(i.."pattern"..scene,function(value)
         -- if granchild_grid~=nil then
         --   granchild_grid:set_steps(i,value)
         -- end
-      end)
+      -- end)
     end
   end
 
@@ -359,21 +569,39 @@ function e:setup_params()
     params:add_control("delay_volume"..scene,"*".."delay output volume",controlspec.new(0.0,1.0,"lin",0,1.0,""))
     params:set_action("delay_volume"..scene,function(value) engine.delay_volume(value) end)
   end
-  params:add_control("rec_fade","rec fade time",controlspec.new(0.0,1500,"lin",10,100,"ms",10/1500))
+  -- params:add_control("rec_fade","rec fade time",controlspec.new(0.0,1500,"lin",10,100,"ms",10/1500))
 
   -- hide scene 2 initially
   for i=1,num_voices do
     for _,param_name in ipairs(param_list) do
       params:hide(i..param_name.."2")
     end
+    for j=1,num_scenes do
+      if mod_parameters[1].p_type=="number" then
+        params:hide(i.."lfo_range_min_control"..j)
+        params:hide(i.."lfo_range_max_control"..j)        
+      else
+        params:hide(i.."lfo_range_min_number"..j)
+        params:hide(i.."lfo_range_max_number"..j)
+      end
+    end
   end
   for _,param_name in ipairs(param_list_delay) do
     params:hide(param_name.."2")
   end
-  self:update_gslices(1,1)
-    
 
   self:bang(1)
+  -- params:bang()
+
+  --hack to get the lfo config min/max params correct  
+  params:set("1config_lfo2",2)
+  params:set("1config_lfo2",1)
+  params:set("1scene",2)
+  params:set("1scene",1)
+
+  e.inited=true
+  self.lfo_refresh:start()
+  
 end
 
 return e
