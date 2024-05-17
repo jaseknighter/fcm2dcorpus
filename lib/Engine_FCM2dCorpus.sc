@@ -1,5 +1,8 @@
 // Engine_FCM2dCorpus
 
+//thanks to infinite digits for using envelopes to loop buffers writeup 
+//  https://infinitedigits.co/tinker/sampler/
+
 // Inherit methods from CroneEngine
 Engine_FCM2dCorpus : CroneEngine {
   
@@ -7,6 +10,7 @@ Engine_FCM2dCorpus : CroneEngine {
   var osc_funcs;
   var recorders;
   var players;
+  var transportBuffers;
   var eglut;
   var gslices;
   var max_slice_dur=2;
@@ -36,9 +40,9 @@ Engine_FCM2dCorpus : CroneEngine {
     var transport_reset_pos=0;
     var transport_stretch=0;
     var transportRecorder;
-    var transportBuffer=Buffer.alloc(s,48000*60*0.5);
-    var transportBuffer_prev=Buffer.alloc(s,48000*60*0.5);
-    // var zeroBuffer=Buffer.alloc(s,48000*5);
+    var transport_buffer_dummy=Buffer.alloc(s,1);
+    var transport_buffer_current=0;
+    var transport_buffer_next=0;
     var buf_recording=0;
     var buf_writing=0;
     var x_loc;
@@ -52,6 +56,10 @@ Engine_FCM2dCorpus : CroneEngine {
     recorders=Dictionary.new();
     players=Dictionary.new();
 
+    transportBuffers = Array.fill(10,{
+      Buffer.alloc(s,48000*60*3);
+    });
+
     Routine({
       var gslicesbuf_path="/home/we/dust/audio/fcm2dcorpus/gslicesbufs.wav";
       File.delete(gslicesbuf_path);
@@ -64,7 +72,7 @@ Engine_FCM2dCorpus : CroneEngine {
     sc_sender=NetAddr.new("127.0.0.1",57120);   
     lua_sender.sendMsg("/lua_fcm2dcorpus/sc_inited");
         
-    // buses.put("busTransport",Bus.audio(s,1));
+    buses.put("busTransport",Bus.audio(s,1));
 
 
     composewritebufdone={
@@ -135,18 +143,27 @@ Engine_FCM2dCorpus : CroneEngine {
       0.0 //quiet
     }).add;
 
-     SynthDef("transport_player",{ 
-      arg xloc=0.5,yloc=0.5,src,index=0,transport_rate=1,gate=1,
+    SynthDef("transport_bus_player",{ 
+      arg in=0,out=0;
+      var sig;
+      sig = In.ar(in,1);
+      out=Out.ar(out,sig);
+      
+     }).add;
+              
+    SynthDef("transport_synth",{ 
+      arg out=0, transport_buffer, send_sig_pos=0,
+          xloc=0.5,yloc=0.5,src,index=0,transport_rate=1,gate=1,
           transport_trig_rate=4,
           startsamp,stopsamp,startsamp_prev,stopsamp_prev,
           windowSize=256,hopSize=128,fftSize=256,tamp=1,
-          reset_pos=0,stretch=0,buf_recording=0;
-      var out;
-      var phs,dursecs,dursecs_prev;
-      var sig,env,outenv;
+          reset_pos=0,stretch=0,
+          record_buf=0;
+      var phase,dursecs,dursecs_prev;
+      var sig,loop_env;
       var tenv,trig_rate,phasor_trig,env_trig;
-      var reset_posL,phsL,sigL;
-      var reset_phs,reset_phsL;
+      var reset_posL,phaseL,sigL;
+      var reset_phase,reset_phaseL;
       var transportSig=0;
       var transportGrains;
       var transport_startsamp;
@@ -162,39 +179,36 @@ Engine_FCM2dCorpus : CroneEngine {
       dursecs=LinLin.kr(x_loc,0,1,dursecs,dursecs_prev);
 
       trig_rate=(transport_trig_rate);
-      // trig_rate=(transport_trig_rate)*(1-(buf_recording))+(dursecs.reciprocal*(buf_recording));
+      // trig_rate=(transport_trig_rate*(1-record_buf));
 
       phasor_trig=Impulse.kr(trig_rate);
-      env_trig=Impulse.kr(trig_rate);
-
-      env=EnvGen.kr(Env([0,1,1,0],[0.05,dursecs-1,0.05]),gate:gate* env_trig);
+      
+      // env_trig=Impulse.kr(trig_rate);
+      // env=EnvGen.kr(Env([0,1,1,0],[0.05,dursecs-1,0.05]),gate:gate* env_trig);
       
       reset_pos=startsamp + (reset_pos*(stopsamp - startsamp));      
-      reset_phs=Phasor.ar(phasor_trig,transport_rate,startsamp,stopsamp,reset_pos);
-      phs=Phasor.ar(Impulse.kr(100),transport_rate,startsamp,stopsamp,reset_phs);
-      sig=BufRd.ar(1,src,phs);
+      reset_phase=Phasor.ar(phasor_trig,transport_rate,startsamp,stopsamp,reset_pos);
+      phase=Phasor.ar(Impulse.kr(100),transport_rate,startsamp,stopsamp,reset_phase);
+      sig=BufRd.ar(1,src,phase);
 
       reset_posL=startsamp_prev + (reset_pos*(stopsamp_prev - startsamp_prev));
-      reset_phsL=Phasor.ar(Impulse.kr(100),transport_rate,startsamp_prev,stopsamp_prev,reset_posL);
-      phsL=Phasor.ar(phasor_trig,transport_rate,startsamp_prev,stopsamp_prev,reset_phsL);
-      sigL=BufRd.ar(1,src,phsL);
+      reset_phaseL=Phasor.ar(Impulse.kr(100),transport_rate,startsamp_prev,stopsamp_prev,reset_posL);
+      phaseL=Phasor.ar(phasor_trig,transport_rate,startsamp_prev,stopsamp_prev,reset_phaseL);
+      sigL=BufRd.ar(1,src,phaseL);
 
       transportSig=FluidAudioTransport.ar(sig,sigL,xloc,windowSize,hopSize,fftSize);
       
       
-      // recordbuf_offset=LinLin.kr(xloc,0,1,phs,phsL);
-      recordbuf_offset=LinLin.kr(phs,startsamp,stopsamp,0,stopsamp-startsamp);
-      RecordBuf.ar(transportSig,transportBuffer,offset: recordbuf_offset,run: buf_recording,loop:1,trigger: Impulse.kr(100)*(buf_recording));
-      // RecordBuf.ar(transportSig,transportBuffer,offset: recordbuf_offset,run: 1-buf_recording,loop:1,trigger: Impulse.kr(100));
-      // RecordBuf.ar(transportSig,transportBuffer,loop:1);
+      // recordbuf_offset=LinLin.kr(xloc,0,1,phase,phaseL);
+      recordbuf_offset=LinLin.kr(phase,startsamp,stopsamp,0,stopsamp-startsamp);
+      RecordBuf.ar(transportSig,transport_buffer,offset: recordbuf_offset,run: record_buf,loop:1,trigger: Impulse.kr(30)*(record_buf));
+      transport_sig_pos=LinLin.kr(phase,startsamp,stopsamp,0,1);
 
+      SendReply.kr(send_sig_pos*Impulse.kr(15),"/sc_fcm2dcorpus/transport_sig_pos",transport_sig_pos.value);
 
-      transport_sig_pos=LinLin.kr(phs,startsamp,stopsamp,0,1);
+      // Out.ar(out,transportSig);
 
-      SendReply.kr(Impulse.kr(15),"/sc_fcm2dcorpus/transport_sig_pos",transport_sig_pos.value);
-
-      Out.ar([0,1],[transportSig,transportSig]*tamp*gate);
-      // Out.ar([0,1],out);
+      Out.ar([0,1],[transportSig*0.5,transportSig*0.5]*tamp*gate*(1-record_buf));
     }).add;
 
     s.sync;
@@ -205,10 +219,10 @@ Engine_FCM2dCorpus : CroneEngine {
       {
         var startsamp=Index.kr(indices,index);
         var stopsamp=Index.kr(indices,index+1);
-        var phs=Phasor.ar(0,BufRateScale.kr(src),startsamp,stopsamp);
-        var sig=BufRd.ar(1,src,phs)*volume*2;
-        var dursecs=(stopsamp - startsamp) / BufSampleRate.kr(src);
+        var phase=Phasor.ar(0,BufRateScale.kr(src),startsamp,stopsamp);
+        var sig=BufRd.ar(1,src,phase)*volume*2;
         var env;
+        var dursecs=(stopsamp - startsamp) / BufSampleRate.kr(src);
         var ptr,bufrate;
 
         dursecs=min(dursecs,1);
@@ -474,7 +488,7 @@ Engine_FCM2dCorpus : CroneEngine {
         tree.kNearest(point,1,{
           arg nearest_slice;
           var start,stop,dur;
-          if(nearest_slice != previous_slice){
+          if(nearest_slice != current_slice){
             start=findices[nearest_slice.asInteger];
             stop=findices[nearest_slice.asInteger+1];
             dur=stop-start;
@@ -531,15 +545,28 @@ Engine_FCM2dCorpus : CroneEngine {
           var startsamp,stopsamp;
     			var startsamp_prev,stopsamp_prev;
           var transportNumFrames,transportDuration;
+          
           if(playing_slice==false,{
+              players.at(\transport_player).set(\gate,0);
+              players.at(\transport_player).free;
+              recorders.at(\transport_recorder).set(\gate,0);
+              recorders.at(\transport_recorder).free;
+              // s.sync;
+              ["dump node tree",s.queryAllNodes].postln;
+
             Routine({
-              if (players.at(\currentPlayer)!=nil,{
-                players.at(\currentPlayer).postln;
+
+              if (recorders.at(\transport_recorder)!=nil,{
+              });
+            });
+
+            Routine({
+              s.sync;
+              if (players.at(\transport_player)!=nil,{
                 ["transport slice nearest_slice/current_slice1",nearest_slice,current_slice,previous_slice].postln;
                 startsamp_prev=findices[previous_slice.asInteger];
                 stopsamp_prev=findices[previous_slice.asInteger+1];
-                players.at(\currentPlayer).set(\gate,0);
-                players.at(\currentPlayer).free;
+                
               },{
                 if(previous_slice!=nil,{
                   ["transport slice nearest_slice/current_slice2",nearest_slice,current_slice,previous_slice].postln;
@@ -552,10 +579,9 @@ Engine_FCM2dCorpus : CroneEngine {
               });
               startsamp=findices[nearest_slice.asInteger];
               stopsamp=findices[nearest_slice.asInteger+1];
-
-              // players.add(\nearest_slicePlayer->Synth(
-              players.add(\currentPlayer->Synth(
-                \transport_player,[
+              players.add(\transport_player->Synth(
+                \transport_synth,[
+                  // \out,buses.at(\busTransport),
                   \xloc,x,
                   \yloc,y,
                   \src,src,
@@ -566,16 +592,52 @@ Engine_FCM2dCorpus : CroneEngine {
                   \stopsamp_prev,stopsamp_prev,
                   \tamp,transport_volume,
                   \transport_rate,0,
+                  \transport_buffer,transport_buffer_dummy,
                   \transport_trig_rate,transport_trig_rate,
                   \stretch,transport_stretch,
-                  \reset_pos,transport_reset_pos
+                  \reset_pos,transport_reset_pos,
+                  \send_sig_pos,1,
+                  \record_buf,0
                 ]
               ));
+
+              recorders.add(\transport_recorder->Synth(
+                \transport_synth,[
+                  // \out,buses.at(\busTransport),
+                  \xloc,x,
+                  \yloc,y,
+                  \src,src,
+                  \index,nearest_slice.asInteger,
+                  \startsamp,startsamp,
+                  \stopsamp,stopsamp,
+                  \startsamp_prev,startsamp_prev,
+                  \stopsamp_prev,stopsamp_prev,
+                  \tamp,transport_volume,
+                  \transport_rate,0,
+                  \transport_buffer,transport_buffer_dummy,
+                  \transport_trig_rate,transport_trig_rate,
+                  \stretch,transport_stretch,
+                  \reset_pos,transport_reset_pos,
+                  \send_sig_pos,0,
+                  \record_buf,0
+                ]
+              ));
+
+              // transportBuffers[transport_buffer_next].zero;
+
+              // players.add(\transport_bus_player->Synth(
+              //   \transport_bus_player,[
+              //     \in, buses.at(\busTransport)
+              //   ];
+              // ));
+
               lua_sender.sendMsg("/lua_fcm2dcorpus/slice_played",nearest_slice,current_slice);
               // current_slice=nearest_slice;
               previous_slice=current_slice;
+
               ["record transport sig",srcSampleRate].postln;
-              players.at(\currentPlayer).set(\transport_rate,transport_rate);
+              players.at(\transport_player).set(\transport_rate,transport_rate);
+              recorders.at(\transport_recorder).set(\transport_rate,transport_rate);
               sc_sender.sendMsg("/sc_fcm2dcorpus/record_transportbuf")
             }).play;
           });
@@ -587,7 +649,8 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg,time,addr,recvPort|
         var gate=msg[1];
         ["transport_gate",gate].postln;
-        players.at(\currentPlayer).set(\gate,gate);
+        players.at(\transport_player).set(\gate,gate);
+        recorders.at(\transport_recorder).set(\gate,gate);
       },"/sc_fcm2dcorpus/transport_gate");
     );
     
@@ -595,7 +658,8 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg,time,addr,recvPort|
         var vol=msg[1];
         transport_volume=vol;
-        players.at(\currentPlayer).set(\tamp,vol);
+        players.at(\transport_player).set(\tamp,vol);
+        recorders.at(\transport_recorder).set(\tamp,vol);
       },"/sc_fcm2dcorpus/set_transport_volume");
     );
 
@@ -604,8 +668,10 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg,time,addr,recvPort|
         var x=msg[1];
         var y=msg[2];
-        players.at(\currentPlayer).set(\xloc,x);
-        players.at(\currentPlayer).set(\yloc,y);
+        players.at(\transport_player).set(\yloc,y);
+        players.at(\transport_player).set(\xloc,x);
+        recorders.at(\transport_recorder).set(\xloc,x);
+        recorders.at(\transport_recorder).set(\yloc,y);
         sc_sender.sendMsg("/sc_fcm2dcorpus/record_transportbuf")
       },"/sc_fcm2dcorpus/transport_x_y");
     );
@@ -614,7 +680,7 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg,time,addr,recvPort|
         var rate=msg[1];
         transport_rate=rate;
-        players.at(\currentPlayer).set(\transport_rate,rate);
+        players.at(\transport_player).set(\transport_rate,rate);
       },"/sc_fcm2dcorpus/set_transport_rate");
     );
 
@@ -622,7 +688,7 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg,time,addr,recvPort|
         var rate=msg[1];
         transport_trig_rate=rate;
-        players.at(\currentPlayer).set(\transport_trig_rate,rate);
+        players.at(\transport_player).set(\transport_trig_rate,rate);
       },"/sc_fcm2dcorpus/set_transport_trig_rate");
     );
 
@@ -630,7 +696,7 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg,time,addr,recvPort|
         var pos=msg[1];
         transport_reset_pos=pos;
-        players.at(\currentPlayer).set(\reset_pos,pos);
+        players.at(\transport_player).set(\reset_pos,pos);
         // sc_sender.sendMsg("/sc_fcm2dcorpus/record_transportbuf")
       },"/sc_fcm2dcorpus/set_transport_reset_pos");
     );
@@ -639,8 +705,9 @@ Engine_FCM2dCorpus : CroneEngine {
       OSCFunc.new({ |msg,time,addr,recvPort|
         var stretch=msg[1];
         transport_stretch=stretch;
-        players.at(\currentPlayer).set(\stretch,stretch);
-        // sc_sender.sendMsg("/sc_fcm2dcorpus/record_transportbuf")
+        players.at(\transport_player).set(\stretch,stretch);
+        recorders.at(\transport_recorder).set(\stretch,stretch);
+        sc_sender.sendMsg("/sc_fcm2dcorpus/record_transportbuf")
       },"/sc_fcm2dcorpus/set_transport_stretch");
     );
 
@@ -655,47 +722,46 @@ Engine_FCM2dCorpus : CroneEngine {
         var startsamp_prev=findices[previous_slice.asInteger];
         var stopsamp_prev=findices[previous_slice.asInteger+1];
         var transportNumFrames,transportNumFrames_prev,transportDuration;
+        var transport_buffer;
         transportNumFrames=(((stopsamp+(transport_stretch*server_sample_rate))-startsamp)).ceil;
-        transportNumFrames_prev=(((stopsamp_prev+(transport_stretch*server_sample_rate))-startsamp_prev)).ceil;
-        // var transportNumFrames=(((stopsamp+(transport_stretch*server_sample_rate))-startsamp)*transport_trig_rate.reciprocal).ceil;
-        
-        transportNumFrames=LinLin.kr(x_loc,0,1,transportNumFrames,transportNumFrames_prev);
-        transportNumFrames=(transportNumFrames*transport_trig_rate.reciprocal).ceil;
-        transportDuration=(transportNumFrames/server_sample_rate);
-        ["buf_writing,buf_recording",buf_writing,buf_recording].postln;
-        if((transportNumFrames!=nil).and(buf_recording==0).and(buf_writing==0),{
-          Routine({
-            transportBuffer_prev = transportBuffer;
-            transportBuffer.zero;
-            s.sync;
-            buf_recording=1;
-            players.at(\currentPlayer).set(\buf_recording,1);
-
+          transportDuration=(transportNumFrames/server_sample_rate);
+          transportDuration=max(transportDuration,3);
+          ["buf_writing,buf_recording",buf_writing,buf_recording].postln;
+          Tdef(\record_transportbuf_timer,{ 
+            ["buf_recording",buf_recording].postln;
             ["start record transport buffer ",
-              transportBuffer,
+              // transportBuffer,
               transportDuration,
               transportNumFrames
             ].postln;
-            ["buf_recording",buf_recording].postln;
+
+            transport_buffer_current=transport_buffer_next;
+            transport_buffer=transportBuffers[transport_buffer_current];
+            ["transport_buffer,transport_buffer_current",transport_buffer,transport_buffer_current].postln;
+            recorders.at(\transport_recorder).set(\transport_buffer,transport_buffer);
+
+
+            buf_recording=1;
+            recorders.at(\transport_recorder).set(\record_buf,1);
+            recorders.at(\transport_recorder).set(\transport_trig_rate,transportDuration.reciprocal);
+
+            if (transport_buffer_next < 9,{
+              transport_buffer_next=transport_buffer_next+1;
+            },{
+              transport_buffer_next=0;
+            });
+            transportBuffers[transport_buffer_next].zero;
+
+            transportDuration.wait;
+            if(transportNumFrames!=nil,{
+              sc_sender.sendMsg("/sc_fcm2dcorpus/on_transport_buffer_recorded",transportNumFrames);
+            });
+            buf_recording=0;
+            recorders.at(\transport_recorder).set(\record_buf,0);
+            ["done recording",Tdef(\record_transportbuf_timer)].postln;
+            Tdef(\record_transportbuf_timer).stop;
             // Tdef(\record_transportbuf_timer).clear;
-            Tdef(\record_transportbuf_timer,{ |transportDuration|
-              Routine { 
-                transportDuration.wait;
-                if(transportNumFrames==nil,{
-                  transportBuffer=transportBuffer_prev;
-                });
-                if(transportNumFrames!=nil,{
-                  sc_sender.sendMsg("/sc_fcm2dcorpus/on_transport_buffer_recorded",transportNumFrames);
-                });
-                Tdef(\record_transportbuf_timer).stop;
-                players.at(\currentPlayer).set(\buf_recording,0);
-                buf_recording=0;
-                ["done recording",Tdef(\record_transportbuf_timer)].postln;
-                Tdef(\record_transportbuf_timer).clear;
-              }.play;
-            }).play;
           }).play;
-        });
       },"/sc_fcm2dcorpus/record_transportbuf");
     );
 
@@ -707,7 +773,8 @@ Engine_FCM2dCorpus : CroneEngine {
         var sample_format="int24";
         ["transport buffer recorded",num_frames].postln;
         if(num_frames!=nil,{
-          writebuf.(transportBuffer,path,header_format,sample_format,num_frames,"transport");
+          var transport_buffer=transportBuffers[transport_buffer_current];
+          writebuf.(transport_buffer,path,header_format,sample_format,num_frames,"transport");
         },{
           "don't write! num_frames NIL!"
         });     
@@ -736,6 +803,9 @@ Engine_FCM2dCorpus : CroneEngine {
       val.free;
     });
     players.keysValuesDo({ arg k,val;
+      val.free;
+    });
+    transportBuffers.keysValuesDo({ arg k,val;
       val.free;
     });
   }

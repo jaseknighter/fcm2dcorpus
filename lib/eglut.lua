@@ -171,6 +171,10 @@ end
 function e:setup_params()
   params:add_separator("granular")
   local old_volume={0.25,0.25,0.25,0.25}
+  
+  params:add_option("eglut_active","activate granular",{"off","on"},2)
+  
+  
   for i=1,num_voices do
     params:add_group("sample "..i,(#param_list*2)-2)
     params:add_option(i.."scene","scene",{"a","b"},1)

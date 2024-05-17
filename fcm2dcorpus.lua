@@ -179,8 +179,9 @@ function osc.event(path,args,from)
     path = args[1]
     print("transportslice_composed",path)
     clock.run(on_transportslice_composed,path)
-    clock.run(set_eglut_sample,path,1,1)
-
+    if params:get("eglut_active")==2 then
+      clock.run(set_eglut_sample,path,1,1)
+    end
   elseif path == "/lua_fcm2dcorpus/transport_sig_pos" then
     transport_sig_pos = args[1]
     -- print("transport_sig_pos",transport_sig_pos)
@@ -352,13 +353,15 @@ function enc_debouncer(callback)
 end
 
 function on_eglut_file_loaded(file)
-  loading_waveform = "granulated"
-  if mode~="points generated" then
-    mode="granulated"
+  if params:get("eglut_active")==2 then
+    loading_waveform = "granulated"
+    if mode~="points generated" then
+      mode="granulated"
+    end
+    print("loading_waveform",loading_waveform)
+    activate_waveform("granulated")
+    waveforms["granulated"].load(file)
   end
-  print("loading_waveform",loading_waveform)
-  activate_waveform("granulated")
-  waveforms["granulated"].load(file)
 end
 
 function init()
@@ -519,11 +522,14 @@ function redraw()
         end
         if selected_waveform == 2 and waveforms["granulated"].waveform_samples then
           waveforms["granulated"]:redraw(granulated_sigs_pos,gslices)
+          if transport_sig_pos then    
+            waveforms["transported"]:redraw(transport_sig_pos)
+          end
         elseif selected_waveform == 3 and waveforms["transported"].waveform_samples then
           waveforms["transported"]:redraw({transport_sig_pos})
-          -- if granulated_sigs_pos then    
-          --   waveforms["transported"]:redraw(granulated_sigs_pos)
-          -- end
+          if granulated_sigs_pos then    
+            waveforms["transported"]:redraw(granulated_sigs_pos)
+          end
         end
   
         for k,v in pairs(points_data) do 

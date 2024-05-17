@@ -44,6 +44,7 @@ EGlut {
 			if (File.exists(path), {
 				// load stereo files and duplicate GrainBuf for stereo granulation
         var newbuf,newbuf2;
+        ["read buf"].postln;
         newbuf = Buffer.readChannel(context.server, path, 0, -1, [0], {
           buffers[i].free;
 					gvoices[i].set(\buf, newbuf);
@@ -363,7 +364,7 @@ EGlut {
       var sig = In.ar(in, 2);
       // sig = CombL.ar(in: sig, maxdelaytime: 1, delaytime: delayTime, decaytime: damp, mul: 1.0, add: 0.0);
 
-      sig = Greyhole.ar(sig, delayTime, damp, size, diff, feedback, modDepth, modFreq);
+      // sig = Greyhole.ar(sig, delayTime, damp, size, diff, feedback, modDepth, modFreq);
       Out.ar(out, sig * 4 * delayVol);
     }).add;
 
