@@ -1,12 +1,14 @@
 //EGlut: grandchild of Glut, parent of ZGlut
 //mostly, this adds grain envelopes to the ZGlut engine
+
 EGlut {
-  classvar ngvoices = 1;
+  classvar ngvoices = 2;
   
   var s;
   var context;
   var pg;
 	var effect;
+  var grain_modes; //grain_mode 0=live grain_mode; 1=file grain_mode
 	var <buffers;
 	var <gvoices;
 	var effectBus;
@@ -24,36 +26,48 @@ EGlut {
 
 	}
 
-	// turn audio signal into buffers
-	fillEGBufs { arg i, buf;
-		if(buffers[i].notNil, {
-      ["fillEGBufs i,buf",i,buf].postln;
-      // duplicate GrainBuf for stereo granulation
-      gvoices[i].set(\buf, buf);
+	setGrainMode { arg voice,mode;
+    grain_modes[voice]=mode;
+  }
+
+	// read from an existing buffer into the granulation buffsers
+	readBuf { arg i, buf, mode;
+		if(buffers[i].sampleRate!=nil, {
       buffers[i].zero;
-      buffers[i] = buf;
-      gvoices[i].set(\buf2, buf);
       buffers[i+ngvoices].zero;
-      buffers[i+ngvoices] = buf;
-		});
+    });
+    if (mode.notNil,{
+      this.setGrainMode(mode);
+    });
+    ["readBuf i,buf",i,buf,mode].postln;
+    // duplicate GrainBuf for stereo granulation
+    gvoices[i].set(\buf, buf);
+    buffers[i] = buf;
+    gvoices[i].set(\buf2, buf);
+    buffers[i+ngvoices] = buf;
 	}
 
   // disk read
-	readBuf { arg i, path;
+	readDisk { arg i, path;
 		if(buffers[i].notNil, {
+      grain_modes[i]=1;
 			if (File.exists(path), {
 				// load stereo files and duplicate GrainBuf for stereo granulation
         var newbuf,newbuf2;
-        ["read buf"].postln;
+        ["read disk"].postln;
         newbuf = Buffer.readChannel(context.server, path, 0, -1, [0], {
-          buffers[i].free;
+          if (buffers[i].sampleRate!=nil,{
+            buffers[i].free;
+            });
 					gvoices[i].set(\buf, newbuf);
 					buffers[i] = newbuf;
           ["newbuf",i,buffers[i]].postln;
 				});
 				// newbuf2 = Buffer.readChannel(context.server, path, 0, -1, [1], {
 				newbuf2 = Buffer.readChannel(context.server, path, 0, -1, [0], {
-					buffers[i+ngvoices].free;
+					if (buffers[i+ngvoices].sampleRate!=nil,{
+            buffers[i+ngvoices].free;
+            });
 				  gvoices[i].set(\buf2, newbuf2);
 					buffers[i+ngvoices] = newbuf2;
 				});
@@ -68,12 +82,17 @@ EGlut {
 		arg argServer, engContext, eng;
     var thisEngine;
     var lua_sender;
+    "init eglut".postln;
     lua_sender = NetAddr.new("127.0.0.1",10111);   
     
 		s=argServer;
     context = engContext;
     thisEngine = eng;
     
+    grain_modes = Array.fill(ngvoices, { arg i;
+      1;
+    });
+
     buffers = Array.fill(ngvoices*2, { arg i;
       Buffer.alloc(
         s,
@@ -82,10 +101,11 @@ EGlut {
     });
 
     SynthDef(\synth, {
-      arg out, effectBus, phase_out, level_out, buf, buf2,
+      arg voice, out, effectBus, phase_out, level_out, buf, buf2,
       gate=0, pos=0, buf_pos_start=0, buf_pos_end=1, speed=1, jitter=0, spread_sig=0, voice_pan=0,	
       size=0.1, density=20, pitch=1, spread_pan=0, gain=1, envscale=1,
-      freeze=0, t_reset_pos=0, cutoff=20000, q, mode=0, send=0,
+      freeze=0, t_reset_pos=0, cutoff=20000, q, send=0,
+      // mode=0, 
       subharmonics=0,overtones=0, gr_envbuf = -1,
       spread_sig_offset1=0, spread_sig_offset2=0, spread_sig_offset3=0;
 
@@ -150,7 +170,7 @@ EGlut {
       sig_pos4=(sig_pos+jitter_sig4+(spread_sig*3)+spread_sig_offset3).wrap(0,1);
       // [sig_pos1,sig_pos2,sig_pos3,sig_pos4].poll;
       
-      SendReply.kr(Impulse.kr(10), "/eglut_sigs_pos", [sig_pos1, sig_pos2, sig_pos3, sig_pos4]);
+      SendReply.kr(Impulse.kr(10), "/eglut_sigs_pos", [voice, sig_pos1, sig_pos2, sig_pos3, sig_pos4]);
 
       sig = GrainBuf.ar(
             numChannels: 2, 
@@ -364,11 +384,13 @@ EGlut {
       var sig = In.ar(in, 2);
       // sig = CombL.ar(in: sig, maxdelaytime: 1, delaytime: delayTime, decaytime: damp, mul: 1.0, add: 0.0);
 
-      // sig = Greyhole.ar(sig, delayTime, damp, size, diff, feedback, modDepth, modFreq);
+      sig = Greyhole.ar(sig, delayTime, damp, size, diff, feedback, modDepth, modFreq);
       Out.ar(out, sig * 4 * delayVol);
     }).add;
-
+    
+    ["before first eglut init sync",argServer, engContext, eng,context.server].postln;
     s.sync;
+    "after first eglut init sync".postln;
 
     // delay bus
     effectBus = Bus.audio(context.server, 2);
@@ -386,6 +408,7 @@ EGlut {
 
     gvoices = Array.fill(ngvoices, { arg i;
       Synth.new(\synth, [
+        \voice, i,
         \out, context.out_b.index,
         \effectBus, effectBus.index,
         \phase_out, phases[i].index,
@@ -398,7 +421,7 @@ EGlut {
     });
 
     context.server.sync;
-
+    "second eglut init sync".postln;
     thisEngine.addCommand("delay_time", "f", { arg msg; effect.set(\delayTime, msg[1]); });
     thisEngine.addCommand("delay_damp", "f", { arg msg; effect.set(\damp, msg[1]); });
     thisEngine.addCommand("delay_size", "f", { arg msg; effect.set(\size, msg[1]); });
@@ -409,7 +432,7 @@ EGlut {
     thisEngine.addCommand("delay_volume", "f", { arg msg; effect.set(\delayVol, msg[1]); });
 
     thisEngine.addCommand("read", "is", { arg msg;
-      this.readBuf(msg[1] - 1, msg[2]);
+      this.readDisk(msg[1] - 1, msg[2]);
     });
 
     thisEngine.addCommand("seek", "if", { arg msg;
@@ -609,16 +632,18 @@ EGlut {
     });
 
     OSCdef(\eglut_sigs_pos, {|msg| 
-      var sig_pos1 = msg[3];
-      var sig_pos2 = msg[4];
-      var sig_pos3 = msg[5];
-      var sig_pos4 = msg[6];
+      var voice = msg[3];
+      var sig_pos1 = msg[4];
+      var sig_pos2 = msg[5];
+      var sig_pos3 = msg[6];
+      var sig_pos4 = msg[7];
       if(
         sig_pos1 != prev_sig_pos1 || 
         sig_pos2 != prev_sig_pos2 || 
         sig_pos3 != prev_sig_pos3 || 
         sig_pos4 != prev_sig_pos4, {
-        lua_sender.sendMsg("/lua_fcm2dcorpus/grain_sig_pos",sig_pos1, sig_pos2, sig_pos3, sig_pos4);
+        lua_sender.sendMsg("/lua_eglut/grain_sig_pos",voice,sig_pos1, sig_pos2, sig_pos3, sig_pos4);
+        // ["eglut_sigs_pos",voice,sig_pos1, sig_pos2, sig_pos3, sig_pos4].postln;
       });
       prev_sig_pos1 = sig_pos1;
       prev_sig_pos2 = sig_pos2;
@@ -638,6 +663,5 @@ EGlut {
     gr_envbufs.do({ arg b; b.free; });
     effect.free;
     effectBus.free;
-
   }
 }

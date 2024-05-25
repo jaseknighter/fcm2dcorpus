@@ -10,7 +10,7 @@
 -- e2 select new sounds
 
 -- adapted from: https://learn.flucoma.org/learn/2d-corpus-explorer/
--- FluCoMa installer code from @infinitedigits (schoolz) graintopia
+-- FluCoMa installer code from @infiniteigits (schoolz) graintopia
 
 -- check for requirements
 installer_=include("lib/scinstaller/scinstaller")
@@ -19,7 +19,7 @@ engine.name=installer:ready() and 'FCM2dCorpus' or nil
 
 fileselect=include("lib/fileselect")
 
-eglut = include("lib/eglut")
+eglut=include("lib/eglut")
 waveform=include("lib/waveform")
 
 if not string.find(package.cpath,"/home/we/dust/code/graintopia/lib/") then
@@ -42,9 +42,9 @@ mode = "start"
 -- local points_data_generated=false
 -- local show_composition = false
 
+local inited=false
 local alt_key=false
 local selecting_file = false
-local menu_active = false
 points_data=nil
 local cursor_x = 64
 local cursor_y = 32
@@ -67,45 +67,27 @@ local enc_debouncing=false
 
 
 waveforms = {}
-waveform_names = {"composed","granulated","transported"}
-waveforms_captured = {0,0,0}
-local loading_waveform = nil
+waveform_names = {"composed","transported"}
+waveform_sig_positions = {}
 
 local max_analysis_length = 60 * 3
 local gslice_generated=false
 
-composed_sig_pos = nil
-local granulated_sigs_pos = nil
-local transport_sig_pos = nil
 --------------------------
 -- osc functions
 --------------------------
 local script_osc_event = osc.event
 
-function activate_waveform(waveform)
-  print("activate",waveform)
-  if waveforms[waveform].active == true then return end
-
-  for i,v in pairs(waveform_names) do
-    if waveform == v then
-      print(v)
-      waveforms_captured[i] = 1
-      p=params:lookup_param("selected_waveform")
-      p.options[i] = waveform_names[i]
-      _menu.rebuild_params()
-      -- params:set("selected_waveform",i)
-    end
-  end
-  screen_dirty = true
-end
-
 function on_audio_composed(path)
   if mode ~= "audio composed" and mode ~= "analysing" then
     clock.sleep(0.5)
     mode = "analysing composition"
-    loading_waveform = "composed"
-    waveforms["composed"].load(path,max_analysis_length)
-    
+    local waveform_name=waveform_names[params:get("show_waveform")]
+    if waveform_name=="composed" then
+      waveforms["composed"].load(path,max_analysis_length,true)
+    else
+      waveforms["composed"].load(path,max_analysis_length,true)
+    end
     if params:get("auto_analyze")==2 then
       mode = "analysing"
       screen_dirty = true
@@ -113,7 +95,6 @@ function on_audio_composed(path)
       local min_slice_length = params:get('min_slice_length')
       osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/analyze_2dcorpus",{slice_threshold,min_slice_length})    else
       mode = "audio composed"
-      activate_waveform("composed")
     end
   end
   -- end
@@ -122,26 +103,64 @@ end
 function on_transportslice_composed(path)
   if mode == "points generated" then
     clock.sleep(0.01)
-    loading_waveform = "transported"
-    waveforms["transported"].load(path)    
-    activate_waveform("transported")
-    print("transport slice waveform activated and eglut set")
+    local waveform_name=waveform_names[params:get("show_waveform")]
+    if waveform_name=="transported" then
+      waveforms["transported"].load(path,max_analysis_length,true)
+    else
+      waveforms["transported"].load(path,max_analysis_length,false)
+    end
+    print("transport slice waveform loaded")
+  end
+end
+
+function on_livebuffer_written(path)
+  clock.sleep(0.01)
+  local selected=params:get("show_waveform")/2
+  local gran_live_selected = selected>1 and selected/2 ~= math.floor(selected/2)
+  if gran_live_selected==true then
+    waveforms[math.floor(selected).."gran-live"].load(path,max_analysis_length,true)
+  -- else
+  --   waveforms["granulated"].load(path,max_analysis_length,false)
+  end
+end
+
+function on_eglut_file_loaded(voice,file)
+  print("on_eglut_file_loaded",file)
+  if mode~="points generated" then
+    mode="granulated"
+  end
+  local show_waveform=params:get("show_waveform")
+  if show_waveform>2 then
+    local sample_mode = params:get(voice.."sample_mode")
+    local show_recorded_waveform = sample_mode == 3 and waveform_names[show_waveform] == voice.."gran-rec" 
+    if show_recorded_waveform == true then
+      print(voice,"show gran-rec waveform")
+      waveforms[voice.."gran-rec"].load(file,max_analysis_length,true)
+    end
+  else
+    print(voice,"save gran-rec waveform")
+    waveforms[voice.."gran-rec"].load(file,max_analysis_length,false)
   end
 end
 
 function set_eglut_sample(file,samplenum,scene)
   print("set_eglut_sample",file,samplenum,scene)
-  params:set(samplenum.."sample"..(scene),file,true)
+  params:set(samplenum.."sample",file,true)
   clock.sleep(0.1)
   params:set(samplenum.."scene",3-scene)
   params:set(samplenum.."scene",scene)
-  -- activate_waveform("granulated")
 end
 
 function osc.event(path,args,from)
   if script_osc_event then script_osc_event(path,args,from) end
   
-  if path == "/lua_fcm2dcorpus/sc_inited" then
+if path == "/lua_eglut/grain_sig_pos" then
+
+  local sample=math.floor(args[1]+1)
+  table.remove(args,1)
+  waveform_sig_positions[sample.."granulated"]=args
+  screen_dirty = true
+elseif path == "/lua_fcm2dcorpus/sc_inited" then
     print("fcm 2d corpus sc inited message received")
   elseif path == "/lua_fcm2dcorpus/compose_written" then
     local path = args[1]
@@ -169,19 +188,18 @@ function osc.event(path,args,from)
     previous_y = points_data[previous_slice_id][2]
     previous_x = composition_left + math.ceil(previous_x*(127-composition_left))
     previous_y = composition_top + math.ceil(previous_y*(64-composition_top))
-  elseif path == "/lua_fcm2dcorpus/grain_sig_pos" then
-    granulated_sigs_pos = args
-    -- if mode == "granulated" and selecting_file == false and norns.menu.status() == false then
-    if mode == "granulated" and norns.menu.status() == false then
-      screen_dirty = true
-    end
   elseif path == "/lua_fcm2dcorpus/transportslice_composed" then
     path = args[1]
     print("transportslice_composed",path)
     clock.run(on_transportslice_composed,path)
-    if params:get("eglut_active")==2 then
-      clock.run(set_eglut_sample,path,1,1)
+    for i=1,eglut.num_voices do
+      if params:get(i.."granulate_transport")==2 then
+        clock.run(set_eglut_sample,path,i,1)
+      end
     end
+  elseif path == "/lua_fcm2dcorpus/livebuffer_written" then
+    local path = args[1]
+    clock.run(on_livebuffer_written,path)
   elseif path == "/lua_fcm2dcorpus/transport_sig_pos" then
     transport_sig_pos = args[1]
     -- print("transport_sig_pos",transport_sig_pos)
@@ -199,7 +217,6 @@ function load_json()
   points_data=points_data["data"]
   data_file:close()
   mode = "points generated" 
-  activate_waveform("composed")
   screen_dirty = true
 end
 
@@ -245,6 +262,7 @@ end
 function setup_waveforms()
   for i=1,#waveform_names do
     waveforms[waveform_names[i]] = waveform:new({
+      name=waveform_names[i],
       composition_top=composition_top,
       composition_bottom=composition_bottom,
       composition_left=composition_left,
@@ -254,21 +272,23 @@ function setup_waveforms()
 end
 
 function setup_params()
+  params:add_control("live_audio_dry_wet","live audio dry/wet",controlspec.new(0,1,'lin',0.01,1))
+  params:set_action("live_audio_dry_wet",function(x)
+    print("set live audio gain",x)
+    osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/live_audio_dry_wet",{x})
+  end)
   params:add_separator("waveforms")
-  params:add_option("selected_waveform","waveform",{"-","-","-"})
-  params:set_action("selected_waveform",function(x) 
-    print(x) 
-    if waveforms_captured[x] == 1 then
-      for k,v in pairs(waveforms) do
-        if waveform_names[x] == k then
-          v.active = true
-          print("set active true",k,v,v.active)
-        else
-          print("set active false",k,v,v.active)
-          v.active = false
-        end
-      end
+  params:add_option("show_waveform","show waveform",waveform_names)
+  params:set_action("show_waveform",function(x) 
+    print("show_waveform",x) 
+    if x>2 then
+      print("write_live_stream_enabled",1)
+      osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/write_live_stream_enabled",{1})  
     else
+      -- print("write_live_stream_enabled",0)
+      osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/write_live_stream_enabled",{0})  
+    end
+    if waveforms[waveform_names[x]]:get_samples()==nil then
       print("waveform not yet captured")
     end  
   end)
@@ -283,6 +303,8 @@ function setup_params()
     cursor_y = util.clamp(x*64,composition_top,64)
     if alt_key == false then play_slice() end
   end)
+
+  --slice params
   params:add_group("slice",7)
   params:add_trigger("select_folder_file", "select folder/file" )
   params:set_action("select_folder_file", function(x) selecting_file = true fileselect.enter(_path.audio, set_audio_path) end)
@@ -300,7 +322,9 @@ function setup_params()
   params:add_control("slice_threshold","slice threshold",controlspec.new(0,1,'lin',0.1,0.5))
   params:add_control("min_slice_length","min slice length",controlspec.new(0,100,'lin',0.1,2,"",0.001))
   params:add_control("slice_volume","slice volume",controlspec.new(0,1,'lin',0.1,1))
-  params:add_group("transport",5)
+
+  --transport params
+  params:add_group("transport",5+eglut.num_voices)
   params:add_control("transport_volume","transport volume",controlspec.new(0,1,'lin',0.1,1))
   params:set_action("transport_volume", function(vol)         
     osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/set_transport_volume",{vol}) 
@@ -339,7 +363,11 @@ function setup_params()
     end
     clock.run(enc_debouncer,callback_func)
   end)
-  
+  for i=1,eglut.num_voices do
+    local default=i==1 and 2 or 1
+    params:add_option(i.."granulate_transport","granulate->"..i,{"off","on"},default)
+  end
+
 end
 
 function enc_debouncer(callback)
@@ -352,26 +380,15 @@ function enc_debouncer(callback)
   end
 end
 
-function on_eglut_file_loaded(file)
-  if params:get("eglut_active")==2 then
-    loading_waveform = "granulated"
-    if mode~="points generated" then
-      mode="granulated"
-    end
-    print("loading_waveform",loading_waveform)
-    activate_waveform("granulated")
-    waveforms["granulated"].load(file)
-  end
-end
-
 function init()
   print("init>>>")
-  
   if not installer:ready() then
     return
   end
-
-  print("fcm2d corpus ready")
+  for i=1,eglut.num_voices do
+    table.insert(waveform_names,i.."gran-live")
+    table.insert(waveform_names,i.."gran-rec")
+  end
   create_audio_folder()
   setup_waveforms()
   setup_params()
@@ -379,23 +396,30 @@ function init()
   
   eglut:init(on_eglut_file_loaded)
   eglut:setup_params()
-
-  -- osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/init")
+  print("eglut inited and params setup")
+  -- params:set("1play1",2)
 
   screen.aa(0)
+  softcut.event_render(on_waveform_render)
 
   redrawtimer = metro.init(function() 
-    if norns.menu.status() == true and menu_active == false then
-      menu_active = true
-    elseif norns.menu.status() == false and menu_active == true then
-      menu_active = false
-      screen_dirty = true
+    if norns.menu.status() == true or fileselect.done~=false then
+      redraw()
     end
-    redraw()
+    -- if norns.menu.status() == true and menu_active == false then
+    --   menu_active = true
+    -- elseif norns.menu.status() == false and fileselect.done~=false then
+    --   if menu_active == true then
+    --     menu_active = false
+    --     screen_dirty = true
+    --   end
+    --   redraw()
+    -- end
   end, 1/15, -1)
   redrawtimer:start()
-  softcut.event_render(on_waveform_render)
   screen_dirty = true
+  osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/init_completed")
+  inited=true
 end
 
 function key(k,z)
@@ -431,7 +455,6 @@ function key(k,z)
     elseif mode == "audio composed" then
       mode = "analysing"
       screen_dirty = true
-      activate_waveform("composed")
       local slice_threshold = params:get('slice_threshold')
       local min_slice_length = params:get('min_slice_length')
       osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/analyze_2dcorpus",{slice_threshold,min_slice_length})
@@ -484,15 +507,21 @@ function play_slice()
 end
 
 function on_waveform_render(ch, start, i, s)
-  if loading_waveform == "composed" then
+  local waveform_name=waveform_names[params:get("show_waveform")]
+  if waveform_name == "composed" then
     waveforms["composed"]:set_samples(s)
-    print("on_waveform_render composed: mode, s",mode,#s)
-  elseif loading_waveform == "granulated" then
-    waveforms["granulated"]:set_samples(s)
-    print("on_waveform_render granulated: mode, s",mode,#s)
-  elseif loading_waveform == "transported" then
+    print("on waveform render composed: mode, s",mode,#s)
+  elseif waveform_name == "transported" then
     waveforms["transported"]:set_samples(s)
-    print("on_waveform_render transported: mode, s",mode,#s)
+    print("on waveform render transported: mode, s",mode,#s)
+  else
+    for i=1,eglut.num_voices do
+      if waveform_name == i.."gran-live" then
+        waveforms[i.."gran-live"]:set_samples(s)
+      elseif waveform_name == i.."gran-rec" then
+        waveforms[i.."gran-rec"]:set_samples(s)
+      end
+    end
   end
   screen_dirty = true
 end
@@ -500,107 +529,106 @@ end
 
 -------------------------------
 function redraw()
-  if screen_dirty == true then
-    screen.level(15)
-    if not installer:ready() then
-      installer:redraw()
-      do return end
-    end
-    screen.clear()
+  screen.level(15)
 
-    
-    -- set data points
-    if mode == "points generated" then
-      local selected_waveform = params:get("selected_waveform")
-      if points_data then
-        if slices_analyzed then
-          slices_analyzed = nil
-          total_slices = nil
-        end
-        if waveforms["composed"].waveform_samples then
-          waveforms["composed"]:redraw({composed_sig_pos})
-        end
-        if selected_waveform == 2 and waveforms["granulated"].waveform_samples then
-          waveforms["granulated"]:redraw(granulated_sigs_pos,gslices)
-          if transport_sig_pos then    
-            waveforms["transported"]:redraw(transport_sig_pos)
-          end
-        elseif selected_waveform == 3 and waveforms["transported"].waveform_samples then
-          waveforms["transported"]:redraw({transport_sig_pos})
-          if granulated_sigs_pos then    
-            waveforms["transported"]:redraw(granulated_sigs_pos)
-          end
-        end
-  
-        for k,v in pairs(points_data) do 
-          -- tab.print(k,v) 
-          local x = composition_left + math.ceil(v[1]*(127-composition_left))
-          local y = composition_top + math.ceil(v[2]*(64-composition_top))
-          screen.move(x,y-1)
-          screen.line_rel(0,2)
-          -- screen.pixel(x,y)
-          screen.stroke()
-        end
-      else 
-        print("no points data")
-      end
-      --set cursor
-      if (current_x and current_y) then
-        screen.move(current_x+2,current_y)
-        screen.circle(current_x,current_y,3)
-        screen.fill()
-      end
-      screen.stroke()
-      if (previous_x and previous_y) then
-        screen.move(previous_x+2,previous_y)
-        screen.circle(previous_x,previous_y,3)
-      end
-      screen.stroke()
-      screen.move(cursor_x+4,cursor_y)
-      screen.circle(cursor_x,cursor_y,5)
-      screen.stroke()
-    elseif mode == "granulated" then
-      if granulated_sigs_pos then    
-        waveforms["granulated"]:redraw(granulated_sigs_pos)
-      end
-    elseif mode == "start" then
-      screen.move(composition_left,composition_top-6)
-      screen.text("k2 to select folder/file...")
-      screen.move(composition_left,composition_top+6)
-      screen.text("k1+k3 to record live...")
-    elseif mode == "loading audio" then
-      print("loading audio...")
-      screen.move(composition_left,composition_top-6)
-      screen.text("loading audio...")
-    elseif mode == "audio composed" then
-      print("show comp")
-      if waveforms["composed"].waveform_samples then
-        screen.move(composition_left,composition_top-6)
-        -- screen.text("k1+k2 to transport audio...")
-        screen.text("k3 to analyze audio...")
-        waveforms["composed"]:redraw(composed_sig_pos)
-      end
-    elseif mode == "recording" then
-      print("recording in progress...")
-      screen.move(composition_left,composition_top-6)
-      screen.text("recording in progress...")
-      if waveforms["composed"].waveform_samples then
-        waveforms["composed"]:redraw(composed_sig_pos)
-      end
-    elseif mode == "analysing" then
-      print("analysis in progress...")
-      if waveforms["composed"].waveform_samples then
-        waveforms["composed"]:redraw(composed_sig_pos)
-      end
-      screen.move(composition_left,composition_top-6)
-      if slices_analyzed then
-        screen.text("progress: "..slices_analyzed.."/"..total_slices)
-      else
-        screen.text("analysis in progress...")
-      end
-    end
-    screen.peek(0, 0, 127, 64)
-    screen.update()
-    screen_dirty = false
+  if not installer:ready() then
+    installer:redraw()
+    do return end
   end
+  if not inited==true then
+    print("not yet inited don't redraw")
+    do return end
+  end
+  screen.clear()
+
+  -- draw waveforms
+  local show_waveform_name
+  local show_waveform_ix = params:get("show_waveform")
+  show_waveform_name = waveform_names[show_waveform_ix]
+  local show_waveform = waveforms[show_waveform_name]:get_samples()~=nil
+  if show_waveform then
+    waveforms[show_waveform_name]:redraw(waveform_sig_positions[show_waveform_name])
+  end
+  
+
+  -- set data points
+  if mode == "points generated" then
+    if points_data then
+      if slices_analyzed then
+        slices_analyzed = nil
+        total_slices = nil
+      end
+
+      for k,v in pairs(points_data) do 
+        -- tab.print(k,v) 
+        local x = composition_left + math.ceil(v[1]*(127-composition_left))
+        local y = composition_top + math.ceil(v[2]*(64-composition_top))
+        screen.move(x,y-2)
+        screen.line_rel(0,4)
+        screen.stroke()
+      end
+    else 
+      print("no points data")
+    end
+    --set cursor
+    if (current_x and current_y) then
+      screen.move(current_x+2,current_y)
+      screen.circle(current_x,current_y,3)
+      screen.fill()
+    end
+    screen.stroke()
+    if (previous_x and previous_y) then
+      screen.move(previous_x+2,previous_y)
+      screen.circle(previous_x,previous_y,3)
+    end
+    screen.stroke()
+    screen.move(cursor_x+4,cursor_y)
+    screen.circle(cursor_x,cursor_y,5)
+    -- screen.line(previous_x,previous_y,2)
+    screen.stroke()
+  elseif mode == "start" then
+    screen.move(composition_left,8)
+    screen.text("k2 to select folder/file...")
+    screen.move(composition_left,16)
+    screen.text("k1+k3 to record live...")
+  elseif mode == "loading audio" then
+    print("loading audio...")
+    screen.move(composition_left,composition_top-6)
+    screen.text("loading audio...")
+  elseif mode == "audio composed" then
+    print("show comp")
+    if waveforms["composed"].waveform_samples then
+      screen.move(composition_left,composition_top-6)
+      -- screen.text("k1+k2 to transport audio...")
+      screen.text("k3 to analyze audio...")
+      waveforms["composed"]:redraw(composed_sig_pos)
+    end
+  elseif mode == "recording" then
+    print("recording in progress...")
+    screen.move(composition_left,composition_top-6)
+    screen.text("recording in progress...")
+    if waveforms["composed"].waveform_samples then
+      waveforms["composed"]:redraw(composed_sig_pos)
+    end
+  elseif mode == "analysing" then
+    -- print("analysis in progress...")
+    -- if waveforms["composed"].waveform_samples then
+    --   waveforms["composed"]:redraw(composed_sig_pos)
+    -- end
+    screen.move(composition_left,composition_top-6)
+    if slices_analyzed then
+      screen.text("progress: "..slices_analyzed.."/"..total_slices)
+    else
+      screen.text("analysis in progress...")
+    end
+  end
+  screen.peek(0, 0, 127, 64)
+  screen.update()
+  screen_dirty = false
+end
+
+function cleanup ()
+  print("cleanup",redrawtimer)
+  -- if redrawtimer then metro.free(redrawtimer) end
+  -- eglut:cleanup()
 end

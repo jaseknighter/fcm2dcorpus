@@ -6,14 +6,15 @@
 // Inherit methods from CroneEngine
 Engine_FCM2dCorpus : CroneEngine {
   
+  // var s;
   var buses;
   var osc_funcs;
   var recorders;
   var players;
   var transportBuffers;
-  var eglut;
   var gslices;
   var max_slice_dur=2;
+  var eglut;
 
 	*new { arg context,doneCallback;
 		^super.new(context,doneCallback);
@@ -22,13 +23,13 @@ Engine_FCM2dCorpus : CroneEngine {
 
   alloc {
     var s=context.server;
-    var compose,writebuf,append_gslice,remove_gslice,renumber_reduced_slice_array,analyze,play_slice,lua_sender,sc_sender;
-    var composewritebufdone,composelivewritebufdone,analyzewritebufdone,transportwritebufdone;
-    var indices=Buffer.new(s);
-    var gslicebuf=Buffer.alloc(s,1);
-    var gslicesbuf=Buffer.alloc(s,1);
-    var gslicesbuf_temp=Buffer.alloc(s,1);
-    var gslices=Array.new();
+    var compose,writebuf,append_gslice,remove_gslice,renumber_reduced_slice_array,analyze,dump_normed,play_slice,lua_sender,sc_sender;
+    var composewritebufdone,composelivewritebufdone,analyzewritebufdone,transportwritebufdone,livewritebufdone;
+    var indices;
+    var gslicebuf;
+    var gslicesbuf;
+    var gslicesbuf_temp;
+    var gslices;
     var tree,point,findices,current_slice,previous_slice;
     var src,srcSampleRate,normedBuf;
     var playing_slice=false;
@@ -40,100 +41,159 @@ Engine_FCM2dCorpus : CroneEngine {
     var transport_reset_pos=0;
     var transport_stretch=0;
     var transportRecorder;
-    var transport_buffer_dummy=Buffer.alloc(s,1);
+    var transport_buffer_dummy;
     var transport_buffer_current=0;
     var transport_buffer_next=0;
     var buf_recording=0;
     var buf_writing=0;
     var x_loc;
     var server_sample_rate=48000;
+    var live_buffer;
+    var compose_buffer_recorder_ix=0;
+    var transport_buffer_recorder_ix=0;
 
+    ["memsize",s.options.memSize].postln;
+    s.options.memSize=8192*4; 
+    ["memsize post",s.options.memSize].postln;
+    
+    // s.sync;
 
-    eglut=EGlut.new(s,context,this);
+    lua_sender=NetAddr.new("127.0.0.1",10111);   
+    sc_sender=NetAddr.new("127.0.0.1",57120);   
+    // lua_sender.sendMsg("/lua_fcm2dcorpus/sc_inited");
 
     buses=Dictionary.new();
     osc_funcs=Dictionary.new();
     recorders=Dictionary.new();
     players=Dictionary.new();
+    "dictionaries created".postln;
+    s.sync;
 
     transportBuffers = Array.fill(10,{
       Buffer.alloc(s,48000*60*3);
     });
+    s.sync;
+    "transport buffers allocated".postln;
 
+
+    ////
+    indices=Buffer.new(s);
+    gslicebuf=Buffer.alloc(s,1);
+    gslicesbuf=Buffer.alloc(s,1);
+    gslicesbuf_temp=Buffer.alloc(s,1);
+    gslices=Array.new();
+    transport_buffer_dummy=Buffer.alloc(s,1);
+    live_buffer = Buffer.alloc(s, s.sampleRate * 3);
+    ////
+    "initial buffers and arrays allocated".postln;
+    s.sync;
+    buses.put("busTransport",Bus.audio(s,1));
+    s.sync;
+    ////
+    "initial busses allocated".postln;
     Routine({
-      var gslicesbuf_path="/home/we/dust/audio/fcm2dcorpus/gslicesbufs.wav";
-      File.delete(gslicesbuf_path);
+      var transport_path;
+      10.do{
+        arg i;
+        transport_path="/home/we/dust/audio/fcm2dcorpus/temp/transport" ++ i ++ ".wav";
+        File.delete(transport_path);
+      }
     }).play;
 
-    ["memsize",s.options.memSize].postln;
-    s.options.memSize=8192*4; 
-    ["memsize post",s.options.memSize].postln;
-    lua_sender=NetAddr.new("127.0.0.1",10111);   
-    sc_sender=NetAddr.new("127.0.0.1",57120);   
-    lua_sender.sendMsg("/lua_fcm2dcorpus/sc_inited");
-        
-    buses.put("busTransport",Bus.audio(s,1));
 
 
     composewritebufdone={
-      buf_writing=0;
+      arg path;
       src.query({ | msgType,bufnum,numFrames,numChannels,sampleRate |
         srcSampleRate=sampleRate;
         ["compose writebufdone",srcSampleRate].postln;
-        lua_sender.sendMsg("/lua_fcm2dcorpus/compose_written",audio_path ++ "temp/src.wav");
+        lua_sender.sendMsg("/lua_fcm2dcorpus/compose_written",path);
       });
+      buf_writing=0;
     };
 
     composelivewritebufdone={
+      arg path;
       src.query({ | msgType,bufnum,numFrames,numChannels,sampleRate |
         srcSampleRate=sampleRate;
         ["compose live writebufdone",srcSampleRate].postln;
-        lua_sender.sendMsg("/lua_fcm2dcorpus/composelive_written",audio_path ++ "temp/live.wav");
+        lua_sender.sendMsg("/lua_fcm2dcorpus/composelive_written",path);
       });
       buf_writing=0;
     };
 
     analyzewritebufdone={
+      arg path;
       "analyze writebufdone".postln;
       lua_sender.sendMsg("/lua_fcm2dcorpus/analyze_written");
       buf_writing=0;
     };
     
     transportwritebufdone={
+      arg path;
       "transport writebufdone".postln;
-      lua_sender.sendMsg("/lua_fcm2dcorpus/transportslice_composed",audio_path ++ "temp/transport.wav");
+      lua_sender.sendMsg("/lua_fcm2dcorpus/transportslice_composed",path);
+      buf_writing=0;
+    };
+
+    livewritebufdone={
+      arg path;
+      // arg sample, path;
+      lua_sender.sendMsg("/lua_fcm2dcorpus/livebuffer_written",path);
       buf_writing=0;
     };
 
     writebuf={
       arg buf,path,header_format,sample_format,numFrames,msg;
       // if ((buf_writing==0),{
-      ["starting writebuf",buf.bufnum,buf_writing,buf_recording].postln;
+      // ["starting writebuf",buf.bufnum,buf_writing,buf_recording].postln;
       
-      if ((buf_recording==0).and(buf_writing==0),{
+      if ((buf.sampleRate!=nil).and(buf_recording==0).and(buf_writing==0),{
         Routine({
           
           buf.normalize();
           s.sync;
           buf_writing=1;
           if (msg=="compose",{
-            buf.write(path,header_format,sample_format,numFrames,completionMessage:composewritebufdone);
+            buf.write(path,header_format,sample_format,numFrames,completionMessage:{composewritebufdone.(path)});
           });
           if (msg=="composelive",{
             "write live recording".postln;
-            buf.write(path,header_format,sample_format,numFrames,completionMessage:composelivewritebufdone);
+            buf.write(path,header_format,sample_format,numFrames,completionMessage:{composelivewritebufdone.(path)});
           });
           if (msg=="analyze",{
-            buf.write(path,header_format,sample_format,numFrames,completionMessage:analyzewritebufdone);
+            buf.write(path,header_format,sample_format,numFrames,completionMessage:{analyzewritebufdone.(path)});
           });
           if (msg=="transport",{
-            buf.write(path,header_format,sample_format,numFrames,completionMessage:transportwritebufdone);
+            buf.write(path,header_format,sample_format,numFrames,completionMessage:{transportwritebufdone.(path)});
+          });
+          if (msg=="live",{
+            buf.write(path,header_format,sample_format,numFrames,completionMessage:{livewritebufdone.(path)});
           });
         }).play;
       },{
         "buf writing already".postln;
       });
     };
+
+    SynthDef("live_streamer", {
+      arg in=0,out=0, 
+          buf=0, rate=1, ptrdelay=0.2,dry_wet=1,
+          write_live_stream_enabled=0;
+      var sig=SoundIn.ar(in,2);
+	    var ptr, gran, maxgraindur;
+      var dry_sig=LinLin.kr(dry_wet,1,0,0,1);
+      var wet_sig=LinLin.kr(dry_wet,0,1,0,1);
+      dry_sig=min(1,dry_sig);
+      wet_sig=max(0,wet_sig);
+	    sig = SoundIn.ar(in);
+	    // ptr = Phasor.ar(0, BufRateScale.ir(buf), 0, BufFrames.kr(buf));
+	    // BufWr.ar(sig*wet_sig, buf, ptr);
+      RecordBuf.ar(sig*wet_sig, buf, offset: 0.0, recLevel: 1.0, preLevel: 0.0, run: 1.0, loop: 1.0, trigger: 1.0, doneAction: 0);
+
+      Out.ar(out,sig.dup*dry_sig);
+      SendReply.kr(Impulse.kr(10)*write_live_stream_enabled,"/sc_fcm2dcorpus/write_live_streamer",BufFrames.kr(buf));
+    }).add;
 
     SynthDef("live_recorder",{ 
       arg buf,rate=1,dur=10.0;
@@ -213,6 +273,9 @@ Engine_FCM2dCorpus : CroneEngine {
 
     s.sync;
 
+    eglut=EGlut.new(s,context,this);
+    "eglut inited".postln;
+    
      //play a slice
     play_slice={
       arg index,startInt,durInt,volume=1;
@@ -246,7 +309,7 @@ Engine_FCM2dCorpus : CroneEngine {
     compose={
       arg folder_path,file_path,max_sample_length=1.5;
       var loader;
-      var src_path=audio_path ++ "temp/src.wav";
+      var src_path=audio_path ++ "temp/src" ++ compose_buffer_recorder_ix ++ ".wav";
       var header_format="WAV";
       var sample_format="int24";
       var sample_length;
@@ -273,12 +336,15 @@ Engine_FCM2dCorpus : CroneEngine {
                   ("buf composed2").postln;
                   ["audio composition completed",loader.buffer,loader.buffer.sampleRate*60*sample_length,src,src_path,header_format,sample_format].postln;
                   writebuf.(src,src_path,header_format,sample_format,-1,"compose");
+                  compose_buffer_recorder_ix=(compose_buffer_recorder_ix+1).wrap(0,10);
                 });
               });
             }{
               "audio is already mono".postln;
               ["audio composition completed",loader.buffer,loader.buffer.sampleRate*60*2,src,src_path,header_format,sample_format].postln;
               writebuf.(src,src_path,header_format,sample_format,-1,"compose");
+              compose_buffer_recorder_ix=compose_buffer_recorder_ix+1;
+              compose_buffer_recorder_ix.wrap(0,10);
             };
         },{
           ["load file",folder_path,file_path].postln;
@@ -310,6 +376,53 @@ Engine_FCM2dCorpus : CroneEngine {
       };
     };
 
+    dump_normed={
+      arg normed;
+      tree=FluidKDTree(s,numNeighbours:1,radius:0.5).fit(normed);
+      s.sync;
+      ["tree set",tree].postln;
+      ["start normed dump",normed,findices].postln;
+      ////////////////////////
+      normed.dump({ arg dict;
+        var dictkeys;
+        var deststarts=List.new();
+        var durations=List.new();
+        normedBuf=Buffer(s);
+        //save the buffer in the order of the dict
+        dictkeys=dict.values[0].keys;
+        dictkeys=Array.newFrom(dictkeys);
+        ["indices.loadToFloatArray",dictkeys].postln;
+        findices.doAdjacentPairs{
+          arg start,end,i;
+          var num=end - start;
+          durations.add(num);
+        };
+        "durations captured".postln;
+        dictkeys.do({|key,i|
+          var startsamp,stopsamp,start_frame,duration,dest_start,lastduration=0,laststart;
+          start_frame=findices[key.asInteger];
+          duration=durations[key.asInteger];
+          if(i>0,{
+            lastduration=durations[dictkeys[i-1].asInteger];
+            laststart=deststarts[i-1];
+            dest_start=lastduration+laststart;
+            deststarts.insert(i,dest_start);
+            FluidBufCompose.process(s,src,startFrame:start_frame,numFrames: duration,destination:normedBuf,destStartFrame:dest_start,action:{});
+          },{
+            deststarts.insert(i,0);
+            FluidBufCompose.process(s,src,startFrame:start_frame,numFrames: duration,destination:normedBuf,destStartFrame:0,action:{});
+          });
+        });
+      },action:{
+
+      });
+      normed.write(Platform.defaultTempDir+/+"temp_dataset.json");
+      "normed json file generated".postln;
+      [Platform.defaultTempDir+/+"temp_dataset.json"].postln;
+      
+      lua_sender.sendMsg("/lua_fcm2dcorpus/analysis_dumped");
+
+    };
     analyze={
       arg sliceThresh=0.5,min_slice_length=2;
       var analyses,normed,umapped2d,normed_dict;
@@ -367,52 +480,8 @@ Engine_FCM2dCorpus : CroneEngine {
             FluidNormalize(s).fitTransform(umapped2d,normed);
 
             ["umap normed",normed].postln;
-            
-            tree=FluidKDTree(s,numNeighbours:1,radius:0.5).fit(normed);
-            s.sync;
-            ["tree set",tree].postln;
-            ["start normed dump",normed,fa].postln;
-            ////////////////////////
-            normed.dump({ arg dict;
-              var dictkeys;
-              var deststarts=List.new();
-              var durations=List.new();
-              normedBuf=Buffer(s);
-              //save the buffer in the order of the dict
-              dictkeys=dict.values[0].keys;
-              dictkeys=Array.newFrom(dictkeys);
-              ["indices.loadToFloatArray",dictkeys].postln;
-              fa.doAdjacentPairs{
-                arg start,end,i;
-                var num=end - start;
-                durations.add(num);
-              };
-              "durations captured".postln;
-              dictkeys.do({|key,i|
-                var startsamp,stopsamp,start_frame,duration,dest_start,lastduration=0,laststart;
-                start_frame=fa[key.asInteger];
-                duration=durations[key.asInteger];
-                if(i>0,{
-                  lastduration=durations[dictkeys[i-1].asInteger];
-                  laststart=deststarts[i-1];
-                  dest_start=lastduration+laststart;
-                  deststarts.insert(i,dest_start);
-                  FluidBufCompose.process(s,src,startFrame:start_frame,numFrames: duration,destination:normedBuf,destStartFrame:dest_start,action:{});
-                },{
-                  deststarts.insert(i,0);
-                  FluidBufCompose.process(s,src,startFrame:start_frame,numFrames: duration,destination:normedBuf,destStartFrame:0,action:{});
-                });
-              });
-            },action:{
-
-            });
             ["analysis all done"].postln;
-            normed.write(Platform.defaultTempDir+/+"temp_dataset.json");
-            "normed json file generated".postln;
-            [Platform.defaultTempDir+/+"temp_dataset.json"].postln;
-            
-            lua_sender.sendMsg("/lua_fcm2dcorpus/analysis_dumped");
-
+            dump_normed.(normed);
             /////////////////////////
           });
         });
@@ -552,7 +621,7 @@ Engine_FCM2dCorpus : CroneEngine {
               recorders.at(\transport_recorder).set(\gate,0);
               recorders.at(\transport_recorder).free;
               // s.sync;
-              ["dump node tree",s.queryAllNodes].postln;
+              // ["dump node tree",s.queryAllNodes].postln;
 
             Routine({
 
@@ -713,10 +782,6 @@ Engine_FCM2dCorpus : CroneEngine {
 
     osc_funcs.put("record_transportbuf",
       OSCFunc.new({ |msg,time,addr,recvPort|
-        var path=audio_path ++ "temp/transport.wav";
-        var header_format="WAV";
-        var sample_format="int24";
-
         var startsamp=findices[current_slice.asInteger];
         var stopsamp=findices[current_slice.asInteger+1];
         var startsamp_prev=findices[previous_slice.asInteger];
@@ -767,7 +832,7 @@ Engine_FCM2dCorpus : CroneEngine {
 
     osc_funcs.put("on_transport_buffer_recorded",
       OSCFunc.new({ |msg,time,addr,recvPort|
-        var path=audio_path ++ "temp/transport.wav";
+        var path=audio_path ++ "temp/transport" ++ transport_buffer_recorder_ix ++ ".wav";
         var num_frames=msg[1];
         var header_format="WAV";
         var sample_format="int24";
@@ -778,6 +843,7 @@ Engine_FCM2dCorpus : CroneEngine {
         },{
           "don't write! num_frames NIL!"
         });     
+        transport_buffer_recorder_ix=(transport_buffer_recorder_ix+1).wrap(0,3);
         // pos.postln;
         // lua_sender.sendMsg("/lua_fcm2dcorpus/transport_sig_pos",pos);
       },"/sc_fcm2dcorpus/on_transport_buffer_recorded");
@@ -791,11 +857,60 @@ Engine_FCM2dCorpus : CroneEngine {
       },"/sc_fcm2dcorpus/transport_sig_pos");
     );
 
+    osc_funcs.put("init_completed",
+      OSCFunc.new({ |msg,time,addr,recvPort|
+        recorders.add(\live_streamer ->
+          Synth(\live_streamer, [\buf,live_buffer]);
+        );
+      },"/sc_fcm2dcorpus/init_completed");
+    );   
+
+    osc_funcs.put("write_live_streamer",
+      OSCFunc.new({ |msg,time,addr,recvPort|
+        var path=audio_path ++ "temp/live_buffer.wav";
+        var num_frames=msg[3];
+        var header_format="WAV";
+        var sample_format="int24";
+        if(num_frames!=nil,{
+          writebuf.(live_buffer,path,header_format,sample_format,num_frames,"live");
+        },{
+          "don't write! num_frames NIL!"
+        });     
+      },"/sc_fcm2dcorpus/write_live_streamer");
+    );
+
+    osc_funcs.put("write_live_stream_enabled",
+      OSCFunc.new({ |msg,time,addr,recvPort|
+        ["write_live_stream_enabled",msg[1]].postln;
+        recorders.at(\live_streamer).set(\write_live_stream_enabled,msg[1]);
+      },"/sc_fcm2dcorpus/write_live_stream_enabled");
+    );   
+
+    osc_funcs.put("granulate_live",
+      OSCFunc.new({ |msg,time,addr,recvPort|
+        var voice=msg[1];
+        live_buffer = Buffer.alloc(s, s.sampleRate * 3,completionMessage:{
+          ["gran_live",voice,live_buffer].postln;
+          Synth(\live_streamer, [\buf,live_buffer]);
+          eglut.readBuf(voice,live_buffer,0);
+        });
+      },"/sc_fcm2dcorpus/granulate_live");
+    );   
+
+    osc_funcs.put("live_audio_dry_wet",
+      OSCFunc.new({ |msg,time,addr,recvPort|
+        msg[1].postln;
+        recorders.at(\live_streamer).set(\dry_wet,msg[1]);
+      },"/sc_fcm2dcorpus/live_audio_dry_wet");
+    );     
+    "engine all loaded".postln;   
   }
 
   free {
     "free FCM2dCorpus".postln;  
-    eglut.free();
+    buses.keysValuesDo({ arg k,val;
+      val.free;
+    });
     osc_funcs.keysValuesDo({ arg k,val;
       val.free;
     });
@@ -808,5 +923,7 @@ Engine_FCM2dCorpus : CroneEngine {
     transportBuffers.keysValuesDo({ arg k,val;
       val.free;
     });
+    gslices.free;
+    eglut.free();
   }
 }

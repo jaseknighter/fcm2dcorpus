@@ -8,21 +8,14 @@ function Waveform:new(args)
   for k,v in pairs(args) do
     wf[k]=v
   end
-  wf:init()
   return wf
 end
 
-function Waveform:init()
-  -- self.is_rendering=false
-  -- self.rendering_name=nil
-  -- self.renders={}
-end
-
 -- src = _path.audio..norns.state.name.."/temp/src.wav"
-function Waveform.load(path,max_len)
+function Waveform.load(path,max_len,render_buffer)
   if path ~= "" then
     local ch, samples = audio.file_info(path)
-    print(path)
+    -- print(path)
     if ch > 0 and samples > 0 then
       softcut.buffer_clear()
       clock.run(function()
@@ -30,15 +23,9 @@ function Waveform.load(path,max_len)
         local len = (samples / 48000)
         local waveform_start = 1
         local waveform_end = max_len and math.min(max_len,len) or len
-        print(string.format("[waveform] loading %s",path))
-        softcut.render_buffer(1, waveform_start, waveform_end, 127)
-        -- softcut.loop_start(1, waveform_start)
-        -- softcut.loop_end(1, waveform_end)
-        print("waveform loaded: "..path.." is "..len.."s / "..waveform_end.."s")
-  
-        -- softcut.buffer_read_mono(path,0,1,-1,1,1)
-        -- print(string.format("[waveform] rendering %2.1f sec of %s",length,fname))
-        -- softcut.render_buffer(1,1,path,128)
+        if render_buffer == true then
+          softcut.render_buffer(1, waveform_start, waveform_end, 127)
+        end
       end)
     end
   else
@@ -49,6 +36,10 @@ end
 
 function Waveform:set_samples(samples)
   self.waveform_samples = samples
+end
+
+function Waveform:get_samples()
+  return self.waveform_samples
 end
 
 function Waveform:display_sigs_pos(sigs_pos)

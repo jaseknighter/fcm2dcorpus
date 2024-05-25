@@ -1,15 +1,17 @@
 local e={}
 e.inited = false
-divisions={1,2,4,6,8,12,16}
-division_names={"2 wn","wn","hn","hn-t","qn","qn-t","eighth"}
-param_list={
+e.divisions={1,2,4,6,8,12,16}
+e.division_names={"2 wn","wn","hn","hn-t","qn","qn-t","eighth"}
+e.param_list={
   "lfos","param_value","config_lfo","config_lfo_status",
   "lfo_period","lfo_range_min_number","lfo_range_min_control","lfo_range_max_number","lfo_range_max_control","grain_params",
   "overtoneslfo","subharmonicslfo","cutofflfo","sizelfo","densitylfo","speedlfo","volumelfo","spread_panlfo","spread_siglfo","jitterlfo",
-  "overtones","subharmonics","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread_pan","jitter","spread_sig","size","pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play","sample"}
-param_list_delay={"delay_volume","delay_mod_freq","delay_mod_depth","delay_fdbk","delay_diff","delay_damp","delay_size","delay_time"}
-num_voices=1
-num_scenes=2
+  "overtones","subharmonics","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread_pan","jitter","spread_sig","size",
+  "pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play"}
+e.param_list_delay={"delay_volume","delay_mod_freq","delay_mod_depth","delay_fdbk","delay_diff","delay_damp","delay_size","delay_time"}
+e.num_voices=2
+e.num_scenes=2
+e.active_scenes={1,1}
 
 -- here's a version that handles recursive tables here:
 --  http://lua-users.org/wiki/CopyTable
@@ -35,18 +37,18 @@ function deep_copy(orig, copies)
 end
 
 function e:init(sample_selected_callback)
-  e.sample_selected_callback = sample_selected_callback
+  self.sample_selected_callback = sample_selected_callback
 end
 
-function e:on_sample_selected(file)
-  e.sample_selected_callback(file)
+function e:on_sample_selected(voice,file)
+  self.sample_selected_callback(voice,file)
 end
 
 function e:bang(scene, bangscope)
   bangscope = bangscope or 1
   if bangscope < 3 then
-    for i=1,num_voices do
-      for _,param_name in ipairs(param_list) do
+    for i=1,e.num_voices do
+      for _,param_name in ipairs(e.param_list) do
         local p=params:lookup_param(i..param_name..scene)
         if p.t~=6 then p:bang() end
       end
@@ -55,7 +57,7 @@ function e:bang(scene, bangscope)
     end
   end
   if bangscope ~= 2 then
-    for _,param_name in ipairs(param_list_delay) do
+    for _,param_name in ipairs(e.param_list_delay) do
       local p=params:lookup_param(param_name..scene)
       if p.t~=6 then p:bang() end
     end
@@ -103,10 +105,10 @@ e.mod_param_vals={}
 e.mod_params_dyn={}
 e.active_mod_param_ix={}
 
-for i=1,num_voices do
+for i=1,e.num_voices do
   e.mod_params_dyn[i]={}
   e.active_mod_param_ix[i]={}
-  for j=1,num_scenes do
+  for j=1,e.num_scenes do
     e.active_mod_param_ix[i][j]=1
     e.mod_params_dyn[i][j]=deep_copy(mod_parameters)
   end
@@ -114,37 +116,39 @@ end
 dyn=e.mod_params_dyn
 
 function e:update_lfos()
-  for i=1,num_voices do
-    e.mod_param_vals[i]={}
-    for j=1,num_scenes do
-      e.mod_param_vals[i][j]={}
-      for k,mod in ipairs(e.mod_params_dyn[i][j]) do
-        local range={mod.range[3],mod.range[4]}
-        local period=params:get(i.."lfo_period"..j)
-        e.mod_param_vals[i][j][k]={id=mod.id,minmax=minmax,range=range,period=period,offset=1}--math.random()*30}
+  if e.inited == true then
+    for i=1,e.num_voices do
+      e.mod_param_vals[i]={}
+      for j=1,e.num_scenes do
+        e.mod_param_vals[i][j]={}
+        for k,mod in ipairs(e.mod_params_dyn[i][j]) do
+          local range={mod.range[3],mod.range[4]}
+          local period=params:get(i.."lfo_period"..j)
+          e.mod_param_vals[i][j][k]={id=mod.id,minmax=minmax,range=range,period=period,offset=1}--math.random()*30}
 
-        local active_ix=e.active_mod_param_ix[i][j]
-        if k==active_ix then
-          local lfo_val = params:get(i..mod.id..j)
-          params:set(i.."param_value"..j,lfo_val)
+          local active_ix=e.active_mod_param_ix[i][j]
+          if k==active_ix then
+            local lfo_val = params:get(i..mod.id..j)
+            params:set(i.."param_value"..j,lfo_val)
+          end
         end
       end
-    end
-    local scene=params:get(i.."scene")
-    if params:get(i.."play"..scene)==2 then
-      for j,k in ipairs(e.mod_param_vals[i][scene]) do
-        if params:get(i..k.id.."lfo"..scene)==2 then
-          local lfo_raw_val=self:calculate_lfo(k.period,k.offset)
-          local lfo_scaled_val=util.clamp(
-            util.linlin(
-              -1,1,
-              k.range[1],
-              k.range[2],
-              lfo_raw_val
-            ), 
-            k.range[1],k.range[2]
-          )
-          params:set(i..k.id..scene,lfo_scaled_val)
+      local scene=params:get(i.."scene")
+      if params:get(i.."play"..scene)==2 then
+        for j,k in ipairs(e.mod_param_vals[i][scene]) do
+          if params:get(i..k.id.."lfo"..scene)==2 then
+            local lfo_raw_val=self:calculate_lfo(k.period,k.offset)
+            local lfo_scaled_val=util.clamp(
+              util.linlin(
+                -1,1,
+                k.range[1],
+                k.range[2],
+                lfo_raw_val
+              ), 
+              k.range[1],k.range[2]
+            )
+            params:set(i..k.id..scene,lfo_scaled_val)
+          end
         end
       end
     end
@@ -168,18 +172,21 @@ function e:rebuild_params()
   end
 end
 
+function e:load_file(voice,scene,file)
+  engine.read(voice,file)
+  e:on_sample_selected(voice,scene,file)
+  params:set(voice.."play"..scene,2)
+end
 function e:setup_params()
   params:add_separator("granular")
   local old_volume={0.25,0.25,0.25,0.25}
   
-  params:add_option("eglut_active","activate granular",{"off","on"},2)
-  
-  
-  for i=1,num_voices do
-    params:add_group("sample "..i,(#param_list*2)-2)
+  for i=1,e.num_voices do
+    params:add_group("sample "..i,(#e.param_list*2)-2)
     params:add_option(i.."scene","scene",{"a","b"},1)
     params:set_action(i.."scene",function(scene)
-      for _,param_id in ipairs(param_list) do
+      e.active_scenes[i]=scene
+      for _,param_id in ipairs(e.param_list) do
         params:hide(i..param_id..(3-scene))
         params:show(i..param_id..scene)
         -- local p=params:lookup_param(i..param_id..scene)
@@ -208,23 +215,51 @@ function e:setup_params()
       -- end
       e:rebuild_params()
     end)
-    for scene=1,2 do
-      params:add_file(i.."sample"..scene,"sample")
-      params:set_action(i.."sample"..scene,function(file)
-        print("sample ",i,scene,file)
-        if file~="-" then
-          -- clock.run(load_waveform,file)
-          e:on_sample_selected(file)
-          engine.read(i,file)
-          params:set(i.."play"..scene,2)
-          if params:get(i.."sample"..(3-scene))=="-" then
-            -- load for other scene by default
-            params:set(i.."sample"..(3-scene),file,true)
-            params:set(i.."play"..(3-scene),2,true)
+    local sample_modes={"live","recorded"}
+    params:add_option(i.."sample_mode","sample mode",sample_modes,1)
+    params:set_action(i.."sample_mode",function(mode)
+      local function callback_func()
+        if sample_modes[mode]=="live" then
+          print("gran live",i)
+          osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/granulate_live",{i-1})
+        elseif sample_modes[mode]=="recorded" then
+          local recorded_file = params:get(i.."sample")
+          if recorded_file ~= "-" then
+            print("gran recorded",i,recorded_file)
+            e:load_file(i,e.active_scenes[i],recorded_file)
+            -- params:set(i.."sample"..e.active_scenes[i],recorded_file)
+            -- self.sample_selected_callback(i,recorded_file)
+          else
+            print("no file selected to granulate")
+            for scene=1, e.num_scenes do 
+              params:set(i.."play"..scene,1)
+            end
           end
         end
-      end)
+      end
+      clock.run(enc_debouncer,callback_func)
+    end)
+    params:add_file(i.."sample","sample")
+    params:set_action(i.."sample",function(file)
+      print("sample ",i,e.active_scenes[i],file)
+      if file~="-" then
+        e:load_file(i,e.active_scenes[i],file)
+        params:set(i.."play"..e.active_scenes[i],2)
 
+        -- clock.run(load_waveform,file)
+
+        -- e:on_sample_selected(i,file)
+        -- engine.read(i,file)
+        -- params:set(i.."play"..scene,2)
+
+        -- load for other scene by default
+        -- if params:get(i.."sample"..(3-scene))=="-" then
+        --   params:set(i.."sample"..(3-scene),file,true)
+        --   params:set(i.."play"..(3-scene),2,true)
+        -- end
+      end
+    end)
+    for scene=1,2 do
 
       params:add_separator(i.."lfos"..scene,"lfos")
       params:add_option(i.."config_lfo"..scene,"lfo name",mod_param_names,1)
@@ -292,7 +327,7 @@ function e:setup_params()
         status_param.name=mod_param_names[value].." lfo status"
         period_param.name=mod_param_names[value].." lfo period"
         
-        print(i,scene,value,"min_range_default,max_range_default",min_range_default,max_range_default)
+        -- print(i,scene,value,"min_range_default,max_range_default",min_range_default,max_range_default)
         local selected_lfo=i..mod_parameters[e.active_mod_param_ix[i][scene]].id.."lfo"..scene
         params:set(i.."config_lfo_status"..scene,params:get(selected_lfo))
         
@@ -340,7 +375,7 @@ function e:setup_params()
         local ix = e.active_mod_param_ix[i][scene];
         local dyn_mod_param = e.mod_params_dyn[i][scene][ix]
         if e.inited == true then 
-          print("set max",i,scene,value)
+          -- print("set max",i,scene,value)
           dyn_mod_param.range[4]=value 
         end
       end)
@@ -503,10 +538,10 @@ function e:setup_params()
       params:set_action(i.."send"..scene,function(value) engine.send(i,value) end)
 
 
-      params:add_option(i.."division"..scene,"division",division_names,5)
+      params:add_option(i.."division"..scene,"division",e.division_names,5)
       params:set_action(i.."division"..scene,function(value)
         -- if granchild_grid~=nil then
-        --   granchild_grid:set_division(i,divisions[value])
+        --   granchild_grid:set_division(i,e.divisions[value])
         -- end
       end)
 
@@ -538,7 +573,7 @@ function e:setup_params()
   params:add_group("delay",17)
   params:add_option("delayscene","scene",{"a","b"},1)
   params:set_action("delayscene",function(scene)
-    -- for _,param_name in ipairs(param_list_delay) do
+    -- for _,param_name in ipairs(e.param_list_delay) do
     --   params:hide(i..param_name..(3-scene))
     --   params:show(i..param_name..scene)
     --   local p=params:lookup_param(i..param_name..scene)
@@ -576,11 +611,11 @@ function e:setup_params()
   -- params:add_control("rec_fade","rec fade time",controlspec.new(0.0,1500,"lin",10,100,"ms",10/1500))
 
   -- hide scene 2 initially
-  for i=1,num_voices do
-    for _,param_name in ipairs(param_list) do
+  for i=1,e.num_voices do
+    for _,param_name in ipairs(e.param_list) do
       params:hide(i..param_name.."2")
     end
-    for j=1,num_scenes do
+    for j=1,e.num_scenes do
       if mod_parameters[1].p_type=="number" then
         params:hide(i.."lfo_range_min_control"..j)
         params:hide(i.."lfo_range_max_control"..j)        
@@ -590,7 +625,7 @@ function e:setup_params()
       end
     end
   end
-  for _,param_name in ipairs(param_list_delay) do
+  for _,param_name in ipairs(e.param_list_delay) do
     params:hide(param_name.."2")
   end
 
@@ -608,4 +643,8 @@ function e:setup_params()
   
 end
 
+function e:cleanup()
+  print("eglut cleanup")
+  if e.lfo_refresh then metro.free(e.lfo_refresh) end
+end
 return e
