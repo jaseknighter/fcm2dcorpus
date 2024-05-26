@@ -11,8 +11,7 @@ function Waveform:new(args)
   return wf
 end
 
--- src = _path.audio..norns.state.name.."/temp/src.wav"
-function Waveform.load(path,max_len,render_buffer)
+function Waveform.load(path,max_len)
   if path ~= "" then
     local ch, samples = audio.file_info(path)
     -- print(path)
@@ -23,9 +22,7 @@ function Waveform.load(path,max_len,render_buffer)
         local len = (samples / 48000)
         local waveform_start = 1
         local waveform_end = max_len and math.min(max_len,len) or len
-        if render_buffer == true then
-          softcut.render_buffer(1, waveform_start, waveform_end, 127)
-        end
+        softcut.render_buffer(1, waveform_start, waveform_end, 127)
       end)
     end
   else
@@ -76,15 +73,19 @@ function Waveform:display_slices(slices)
   end
 end
 
-function Waveform:display_waveform()
-  local x_pos = 0
-  
+function Waveform:display_waveform_frame()
   screen.level(1)
   -- screen.aa(1)
   screen.move(self.composition_left-2,self.composition_top-2)
   screen.rect(self.composition_left-2,self.composition_top-2,self.composition_right-self.composition_left+4,self.composition_bottom-self.composition_top+4)
   screen.stroke()
   -- screen.aa(0)
+
+end
+
+function Waveform:display_waveform()
+  local x_pos = 0
+  
   screen.level(3)
   local center = self.composition_bottom-((self.composition_bottom-self.composition_top)/2)
   for i,s in ipairs(self.waveform_samples) do
@@ -94,7 +95,6 @@ function Waveform:display_waveform()
     screen.stroke()
     x_pos = x_pos + 1
   end
-  screen.level(5)
 end
 
 function Waveform:redraw(sigs_pos, slices)
@@ -102,6 +102,8 @@ function Waveform:redraw(sigs_pos, slices)
     do return end
   end
 
+  -- self:display_waveform_frame()
+  screen.level(5)
   self:display_waveform()
 
   --show slice positions

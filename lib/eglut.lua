@@ -40,7 +40,7 @@ function e:init(sample_selected_callback)
   self.sample_selected_callback = sample_selected_callback
 end
 
-function e:on_sample_selected(voice,file)
+function e:on_sample_selected(voice,scene,file)
   self.sample_selected_callback(voice,file)
 end
 
@@ -175,14 +175,13 @@ end
 function e:load_file(voice,scene,file)
   engine.read(voice,file)
   e:on_sample_selected(voice,scene,file)
-  params:set(voice.."play"..scene,2)
 end
 function e:setup_params()
   params:add_separator("granular")
   local old_volume={0.25,0.25,0.25,0.25}
   
   for i=1,e.num_voices do
-    params:add_group("sample "..i,(#e.param_list*2)-2)
+    params:add_group("sample "..i,(#e.param_list*2)-3)
     params:add_option(i.."scene","scene",{"a","b"},1)
     params:set_action(i.."scene",function(scene)
       e.active_scenes[i]=scene
@@ -221,19 +220,21 @@ function e:setup_params()
       local function callback_func()
         if sample_modes[mode]=="live" then
           print("gran live",i)
+          params:set("show_waveform",math.ceil(i*2)+1)
           osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/granulate_live",{i-1})
         elseif sample_modes[mode]=="recorded" then
           local recorded_file = params:get(i.."sample")
           if recorded_file ~= "-" then
             print("gran recorded",i,recorded_file)
             e:load_file(i,e.active_scenes[i],recorded_file)
+            params:set("show_waveform",math.ceil(i*2)+2)
             -- params:set(i.."sample"..e.active_scenes[i],recorded_file)
             -- self.sample_selected_callback(i,recorded_file)
           else
             print("no file selected to granulate")
-            for scene=1, e.num_scenes do 
-              params:set(i.."play"..scene,1)
-            end
+            -- for scene=1, e.num_scenes do 
+              -- params:set(i.."play"..scene,1)
+            -- end
           end
         end
       end
@@ -244,7 +245,7 @@ function e:setup_params()
       print("sample ",i,e.active_scenes[i],file)
       if file~="-" then
         e:load_file(i,e.active_scenes[i],file)
-        params:set(i.."play"..e.active_scenes[i],2)
+        -- params:set(i.."play"..e.active_scenes[i],2)
 
         -- clock.run(load_waveform,file)
 
@@ -420,7 +421,6 @@ function e:setup_params()
 
 
       params:add_option(i.."play"..scene,"play",{"off","on"},1)
-      -- params:add_option(i.."play"..scene,"play",{"off","on"},1)
       params:set_action(i.."play"..scene,function(x) engine.gate(i,x-1) end)
 
       params:add_control(i.."volume"..scene,"volume",controlspec.new(0,1.0,"lin",0.05,1,"vol",0.05/1))
