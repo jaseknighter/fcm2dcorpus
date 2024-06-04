@@ -6,8 +6,8 @@ e.param_list={
   "lfos","param_value","config_lfo","config_lfo_status",
   "lfo_period","lfo_range_min_number","lfo_range_min_control","lfo_range_max_number","lfo_range_max_control","grain_params",
   "overtoneslfo","subharmonicslfo","cutofflfo","sizelfo","densitylfo","speedlfo","volumelfo","spread_panlfo","spread_siglfo","jitterlfo",
-  "overtones","subharmonics","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread_pan","jitter","spread_sig","size",
-  "pos","q","division","speed","send","q","cutoff","decay_shape","attack_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play"}
+  "overtones","subharmonics","spread_sig_offset1","spread_sig_offset2","spread_sig_offset3","spread_pan","jitter","spread_sig","size","density_sync_external",
+  "pos","q","division","speed","send","q","cutoff","env_shape","decay_time","attack_time","attack_level","fade","pitch","density","pan","volume","seek","play"}
 e.param_list_delay={"delay_volume","delay_mod_freq","delay_mod_depth","delay_fdbk","delay_diff","delay_damp","delay_size","delay_time"}
 e.num_voices=2
 e.num_scenes=2
@@ -68,8 +68,8 @@ function e:get_gr_env_values(voice, scene)
   local attack_level = params:get(voice.."attack_level"..scene)
   local attack_time = params:get(voice.."attack_time"..scene)
   local decay_time = params:get(voice.."decay_time"..scene)
-  local attack_shape = params:get(voice.."attack_shape"..scene)
-  local decay_shape = params:get(voice.."decay_shape"..scene)
+  local attack_shape = params:get(voice.."env_shape"..scene)
+  local decay_shape = params:get(voice.."env_shape"..scene)
   return {attack_level, attack_time, decay_time, attack_shape, decay_shape}
 end
 
@@ -176,6 +176,35 @@ function e:load_file(voice,scene,file)
   engine.read(voice,file)
   e:on_sample_selected(voice,scene,file)
 end
+
+function e:update_scene(voice,scene)
+  e.active_scenes[voice]=scene
+  for _,param_id in ipairs(e.param_list) do
+    params:hide(voice..param_id..(3-scene))
+    params:show(voice..param_id..scene)
+    -- local p=params:lookup_param(i..param_id..scene)
+    -- p:bang()
+    local lfo_ix = e.active_mod_param_ix[voice][scene]
+    local lfo = mod_parameters[lfo_ix]
+    if lfo.p_type=="number" then
+      params:hide(voice.."lfo_range_min_control"..scene)
+      params:hide(voice.."lfo_range_max_control"..scene)
+    else
+      params:hide(voice.."lfo_range_min_number"..scene)
+      params:hide(voice.."lfo_range_max_number"..scene)
+    end
+end
+
+-- is this one needed????
+  e:bang(scene)      
+  -- local p=params:lookup_param(i.."pattern"..scene)
+  -- p:bang()
+  -- if params:get(i.."pattern"..scene)=="" or params:get(i.."pattern"..scene)=="[]" then
+    -- granchild_grid:toggle_playing_voice(i,false)
+  -- end
+  e:rebuild_params()
+end
+
 function e:setup_params()
   params:add_separator("granular")
   local old_volume={0.25,0.25,0.25,0.25}
@@ -184,41 +213,14 @@ function e:setup_params()
     params:add_group("sample "..i,(#e.param_list*2)-3)
     params:add_option(i.."scene","scene",{"a","b"},1)
     params:set_action(i.."scene",function(scene)
-      e.active_scenes[i]=scene
-      for _,param_id in ipairs(e.param_list) do
-        params:hide(i..param_id..(3-scene))
-        params:show(i..param_id..scene)
-        -- local p=params:lookup_param(i..param_id..scene)
-        -- p:bang()
-        local lfo_ix = e.active_mod_param_ix[i][scene]
-        local lfo = mod_parameters[lfo_ix]
-        if lfo.p_type=="number" then
-          params:hide(i.."lfo_range_min_control"..scene)
-          params:hide(i.."lfo_range_max_control"..scene)
-        else
-          params:hide(i.."lfo_range_min_number"..scene)
-          params:hide(i.."lfo_range_max_number"..scene)
-        end
-
-        -- e:rebuild_params()
-      end
-
-      -- is this one needed????
-      e:bang(scene)
-
-      
-      -- local p=params:lookup_param(i.."pattern"..scene)
-      -- p:bang()
-      -- if params:get(i.."pattern"..scene)=="" or params:get(i.."pattern"..scene)=="[]" then
-        -- granchild_grid:toggle_playing_voice(i,false)
-      -- end
-      e:rebuild_params()
+      scene=scene and scene or 1
+      e:update_scene(i,scene)
     end)
-    local sample_modes={"live","recorded"}
+    local sample_modes={"live stream","recorded"}
     params:add_option(i.."sample_mode","sample mode",sample_modes,1)
     params:set_action(i.."sample_mode",function(mode)
       local function callback_func()
-        if sample_modes[mode]=="live" then
+        if sample_modes[mode]=="live stream" then
           print("gran live",i)
           params:set("show_waveform",math.ceil(i*2)+1)
           osc.send( { "localhost", 57120 }, "/sc_fcm2dcorpus/granulate_live",{i-1})
@@ -451,6 +453,27 @@ function e:setup_params()
         engine.size(i,util.clamp(value*clock.get_beat_sec()/10,0.001,util.linlin(1,40,1,0.1,params:get(i.."density"..scene))))
       end)
       params:add_option(i.."sizelfo"..scene,"size lfo",{"off","on"},1)
+      params:add_control(i.."density"..scene,"density",controlspec.new(1,40,"lin",1,4,"/beat",1/40))
+      params:set_action(i.."density"..scene,function(value) engine.density(i,value/(params:get(i.."density_beat_divisor"..scene)*clock.get_beat_sec())) end)
+      params:add_control(i.."density_beat_divisor"..scene,"density beat div",controlspec.new(1,16,'lin',1,4,"",1/16))
+      params:set_action(i.."density_beat_divisor"..scene,function() 
+        local p=params:lookup_param(i.."density"..scene)
+        p:bang()
+      end)
+      params:add_option(i.."density_sync_external"..scene,"density sync ext",{"off","on"},(i==1 and scene ==1) and 2 or 1)
+      params:add_option(i.."densitylfo"..scene,"density lfo",{"off","on"},1)
+
+      -- update clock tempo param to reset density 
+      -- local old_tempo_action=params:lookup_param("clock_tempo").action
+      -- local tempo=params:lookup_param("clock_tempo")
+      -- tempo.action = function ()
+        
+      --   old_tempo_action()
+      -- end
+
+
+      params:add_control(i.."pitch"..scene,"pitch",controlspec.new(-48,48,"lin",1,0,"note",1/96))
+      params:set_action(i.."pitch"..scene,function(value) engine.pitch(i,math.pow(0.5,-value/12)) end)
 
       params:add_taper(i.."spread_sig"..scene,"spread sig",0,500,0,5,"ms")
       params:set_action(i.."spread_sig"..scene,function(value) engine.spread_sig(i,value/1000) end)
@@ -469,22 +492,6 @@ function e:setup_params()
       params:set_action(i.."jitter"..scene,function(value) engine.jitter(i,value/1000) end)
       params:add_option(i.."jitterlfo"..scene,"jitter lfo",{"off","on"},1)
 
-      params:add_control(i.."density"..scene,"density",controlspec.new(1,40,"lin",1,12,"/beat",1/40))
-      params:set_action(i.."density"..scene,function(value) engine.density(i,value/(clock.get_beat_sec())) end)
-      -- params:set_action(i.."density"..scene,function(value) engine.density(i,value/(4*clock.get_beat_sec())) end)
-      params:add_option(i.."densitylfo"..scene,"density lfo",{"off","on"},1)
-
-      -- update clock tempo param to reset density 
-      -- local old_tempo_action=params:lookup_param("clock_tempo").action
-      -- local tempo=params:lookup_param("clock_tempo")
-      -- tempo.action = function ()
-        
-      --   old_tempo_action()
-      -- end
-
-
-      params:add_control(i.."pitch"..scene,"pitch",controlspec.new(-48,48,"lin",1,0,"note",1/96))
-      params:set_action(i.."pitch"..scene,function(value) engine.pitch(i,math.pow(0.5,-value/12)) end)
 
       params:add_taper(i.."fade"..scene,"att / dec",1,9000,1000,3,"ms")
       params:set_action(i.."fade"..scene,function(value) engine.envscale(i,value/1000) end)
@@ -494,7 +501,7 @@ function e:setup_params()
         engine.gr_envbuf(i,table.unpack(e:get_gr_env_values(i,scene))) 
       end)
 
-      params:add_control(i.."attack_time"..scene,"attack time",controlspec.new(0.01,1,"lin",0.01,0.5,"",0.001/1))
+      params:add_control(i.."attack_time"..scene,"attack time",controlspec.new(0.01,0.99,"lin",0.01,0.5,"",0.001/1))
       params:set_action(i.."attack_time"..scene,function(value) 
         if params:get(i.."decay_time"..scene) ~= 1-value then
           params:set(i.."decay_time"..scene,1-value) 
@@ -502,7 +509,7 @@ function e:setup_params()
         engine.gr_envbuf(i,table.unpack(e:get_gr_env_values(i,scene))) 
       end)
       
-      params:add_control(i.."decay_time"..scene,"decay time",controlspec.new(0.01,1,"lin",0.01,0.5,"",0.001/1))
+      params:add_control(i.."decay_time"..scene,"decay time",controlspec.new(0.01,0.99,"lin",0.01,0.5,"",0.001/1))
       params:set_action(i.."decay_time"..scene,function(value) 
         if params:get(i.."attack_time"..scene) ~= 1-value then
           params:set(i.."attack_time"..scene,1-value) 
@@ -513,18 +520,11 @@ function e:setup_params()
       -- params:add_control(i.."attack_shape"..scene,"attack shape",controlspec.new(-8,8,"lin",0.01,8,"",0.01/1))
       -- local prev
 
-      --hold/step no work
-      params:add_option(i.."attack_shape"..scene,"attack shape",{"step","lin","sin","wel","squared","cubed"},4)
-      params:set_action(i.."attack_shape"..scene,function(value) 
+      params:add_option(i.."env_shape"..scene,"envelope shape",{"step","lin","sin","wel","squared","cubed"},4)
+      params:set_action(i.."env_shape"..scene,function(value) 
         engine.gr_envbuf(i,table.unpack(e:get_gr_env_values(i,scene))) 
       end)
-      
-      -- params:add_control(i.."decay_shape"..scene,"decay shape",controlspec.new(-8,8,"lin",0.01,-8,"",0.01/1))
-      params:add_option(i.."decay_shape"..scene,"decay shape",{"step","lin","exp","sin","wel","squared","cubed"},5)
-      params:set_action(i.."decay_shape"..scene,function(value) 
-        engine.gr_envbuf(i,table.unpack(e:get_gr_env_values(i,scene))) 
-      end)
-
+    
       
       
       params:add_control(i.."cutoff"..scene,"filter cutoff",controlspec.new(20,20000,"exp",0,20000,"hz"))

@@ -58,7 +58,7 @@ EGlut {
         newbuf = Buffer.readChannel(context.server, path, 0, -1, [0], {
           if (buffers[i].sampleRate!=nil,{
             buffers[i].free;
-            });
+          });
 					gvoices[i].set(\buf, newbuf);
 					buffers[i] = newbuf;
           ["newbuf",i,buffers[i]].postln;
@@ -553,7 +553,7 @@ EGlut {
       var decay_shape = msg[6]-1;
       var oldbuf;
       var attack_curve_types=["step","lin","sin","wel","squared","cubed"];
-      var decay_curve_types=["step","lin","exp","sin","wel","squared","cubed"];
+      var decay_curve_types=["step","lin","sin","wel","squared","cubed"];
       var winenv = Env(
         [0, attack_level, 0], 
         [attack_time, decay_time], 
@@ -562,6 +562,8 @@ EGlut {
       );
 
       // [attack_shape,decay_shape,attack_curve_types[attack_shape].asSymbol, decay_curve_types[decay_shape].asSymbol].postln;
+      
+      // uncomment to use custom grain envelopes 
       if (updating_gr_envbufs == false,{
         updating_gr_envbufs = true;
         oldbuf = gr_envbufs[voice];
@@ -573,11 +575,8 @@ EGlut {
           updating_gr_envbufs = false;
           oldbuf.free;
         }).play;
-        // FluidBufCompose.process(s, winenv.discretize, startChan: 0, numChans: 1, gain: 1, destination: gr_envbufs[voice], destStartFrame: 0, destStartChan: 0, destGain: 0, action: {
-        //   ["gr_envbuf",gr_envbufs[voice],msg].postln;
-        // });
-
       })
+      
     });
 
     thisEngine.addCommand("envscale", "if", { arg msg;
